@@ -1,0 +1,162 @@
+"""SQLModel 表定义:users / sessions / messages。
+
+设计原则见 docs/berry-db-schema.md:
+- 主键 UUID(gen_random_uuid())
+- 时间戳 timestamptz
+- 不加 CHECK 约束(Python enum 校验)
+- 半结构化字段进 metadata jsonb
+"""
+
+from datetime import datetime, timezone
+from typing import Any
+from uuid import UUID, uuid4
+
+from sqlalchemy import Column, DateTime, ForeignKey, String, UniqueConstraint, func, text
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlmodel import Field, SQLModel
+
+# 所有 UUID 主键的 SQL 端默认值:让 PG 自己用 pgcrypto 的 gen_random_uuid() 生成
+# 这样无论是 ORM、psql、PyCharm Database 还是别的客户端 INSERT,都不用手填 id
+_UUID_SERVER_DEFAULT = text("gen_random_uuid()")
+
+
+def _now_utc() -> datetime:
+    """SQLModel 默认值,用 timezone-aware now。
+
+    实际写入数据库的默认值由 server_default=func.now() 兜底,
+    这里只是 Python 端的 fallback。
+    """
+    return datetime.now(timezone.utc)
+
+
+# ─── User ───────────────────────────────────────────────
+
+
+class User(SQLModel, table=True):
+    __tablename__ = "users"  # type: ignore[assignment]
+    __table_args__ = (
+        UniqueConstraint("external_source", "external_id", name="uq_users_external"),
+    )
+
+    id: UUID = Field(
+        default_factory=uuid4,
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            primary_key=True,
+            server_default=_UUID_SERVER_DEFAULT,
+        ),
+    )
+    external_id: str = Field(sa_column=Column(String, nullable=False))
+    external_source: str = Field(sa_column=Column(String, nullable=False))
+    display_name: str = Field(sa_column=Column(String, nullable=False))
+
+    # 字段名用 metadata_,DB 列名仍叫 metadata(SQLModel 保留字 metadata 不能直接用)
+    metadata_: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column("metadata", JSONB, nullable=False, server_default="{}"),
+    )
+
+    created_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True), nullable=False, server_default=func.now()
+        ),
+    )
+    updated_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True),
+            nullable=False,
+            server_default=func.now(),
+            onupdate=func.now(),  # ORM 层 update 自动更新;PG trigger 后续再加
+        ),
+    )
+
+
+# ─── Session ────────────────────────────────────────────
+
+
+class Session(SQLModel, table=True):
+    __tablename__ = "sessions"  # type: ignore[assignment]
+
+    id: UUID = Field(
+        default_factory=uuid4,
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            primary_key=True,
+            server_default=_UUID_SERVER_DEFAULT,
+        ),
+    )
+    user_id: UUID = Field(
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    channel: str = Field(sa_column=Column(String, nullable=False))
+    channel_chat_id: str | None = Field(
+        default=None, sa_column=Column(String, nullable=True)
+    )
+    status: str = Field(
+        default="active", sa_column=Column(String, nullable=False, server_default="active")
+    )
+    title: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+
+    metadata_: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column("metadata", JSONB, nullable=False, server_default="{}"),
+    )
+
+    created_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True), nullable=False, server_default=func.now()
+        ),
+    )
+    updated_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True),
+            nullable=False,
+            server_default=func.now(),
+            onupdate=func.now(),
+        ),
+    )
+
+
+# ─── Message ────────────────────────────────────────────
+
+
+class Message(SQLModel, table=True):
+    __tablename__ = "messages"  # type: ignore[assignment]
+
+    id: UUID = Field(
+        default_factory=uuid4,
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            primary_key=True,
+            server_default=_UUID_SERVER_DEFAULT,
+        ),
+    )
+    session_id: UUID = Field(
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            ForeignKey("sessions.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    role: str = Field(sa_column=Column(String, nullable=False))
+    content: dict[str, Any] = Field(
+        sa_column=Column(JSONB, nullable=False),
+    )
+    metadata_: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column("metadata", JSONB, nullable=False, server_default="{}"),
+    )
+    created_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True), nullable=False, server_default=func.now()
+        ),
+    )

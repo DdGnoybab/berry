@@ -1,0 +1,66 @@
+# ─── Python ───
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# ─── Build / Dist ───
+build/
+dist/
+*.egg-info/
+*.egg
+
+# ─── Virtual Env ───
+.venv/
+venv/
+env/
+.env                # ★ 真实凭证,不要进 git
+!.env.example       # ✓ 模板可以进 git
+
+# ─── uv / pip ───
+.uv-cache/
+pip-wheel-metadata/
+
+# ─── Test / Coverage ───
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+coverage.xml
+*.cover
+.cache
+
+# ─── Type Check / Lint ───
+.mypy_cache/
+.ruff_cache/
+
+# ─── IDE / OS ───
+.idea/              # JetBrains 项目配置(本地化,不入库)
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ─── Logs ───
+*.log
+logs/
+
+# ─── Local data / sandbox ───
+.local/
+data/
+workspaces/
+
+# ─── 本项目专用 ───
+# 第三方研究参考代码(clone 别人项目作灵感参考,不推到我们 repo)
+openclaw_1/
+claw-code_1/
+
+# Claude Code 本地配置(包含权限缓存等)
+.claude/
+
+# ─── 仅本地保留的内容(不推 GitHub) ───
+# 这些文件 / 目录纯本地,推 GitHub 没价值或暂不公开
+docs/                       # 设计文档 / 踩坑 / ADR / 名词字典
+CLAUDE.md                   # AI 协作约定(本地工程师用)

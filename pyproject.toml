@@ -1,0 +1,220 @@
+[project]
+name = "berry"
+version = "0.1.0"
+description = "Berry — 飞书原生个人工作台 / 编码 Agent 后端"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "bbb" }]
+
+dependencies = [
+    # ─── 持久化 ───
+    "sqlmodel>=0.0.22",
+    "asyncpg>=0.30",                # 异步 driver(应用代码用)
+    "psycopg[binary]>=3.2",         # 同步 driver(alembic 用)
+    "alembic>=1.13",
+    # ─── Web 框架 ───
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    # ─── 配置 / 校验 ───
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    # ─── 日志 ───
+    "structlog>=24.4",
+    # ─── LLM Gateway(Batch 1)───
+    "openai>=1.50",
+    "pyyaml>=6.0",
+    "watchfiles>=0.24",
+    # ─── 后续按需要打开 ───
+    # 飞书(接入飞书时打开)
+    # "lark-oapi>=1.4",
+    # Anthropic 协议(Batch 2 打开)
+    # "anthropic>=0.40",
+    # Agent 编排(接 LangGraph 时打开)
+    # "langgraph>=0.2",
+    # "langgraph-checkpoint-postgres>=2.0",
+    # 调度
+    # "apscheduler>=3.10",
+    # HTTP / 安全(用到再开)
+    # "httpx>=0.27",
+    # "cryptography>=43",
+    "sqlalchemy[asyncio]>=2.0",
+    "anthropic>=0.40",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
+    "import-linter>=2.0",
+]
+rag = [
+    # Personal RAG service 才需要
+    "sqlite-vec>=0.1",
+]
+docker-sandbox = [
+    # V1 Docker per workspace 才需要
+    "docker>=7.0",
+]
+redis = [
+    # V1 起接入
+    "redis>=5.0",
+]
+
+[project.scripts]
+berry = "berry.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["berry"]
+
+# ─── 代码风格 ───────────────────────────────────────────
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["alembic/", "tests/fixtures/"]
+
+# ─── 测试 ──────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["berry"]
+branch = true
+
+# ─── ⭐ Import-Linter:Modular Monolith 依赖方向硬规则 ───
+# 对应 CLAUDE.md「⭐ 架构设计语言 §2 五条硬规则」
+# 跑法:uv run lint-imports
+# CI:violation 直接 fail
+
+[tool.importlinter]
+root_packages = ["berry"]
+include_external_packages = false
+
+# ─── 规则 1:agent 不能依赖 feishu(换 channel 时 agent 不动)
+[[tool.importlinter.contracts]]
+name = "agent must not depend on feishu"
+type = "forbidden"
+source_modules = ["berry.agent"]
+forbidden_modules = ["berry.feishu"]
+
+# ─── 规则 2:agent 不能依赖 sandbox 实现,只能依赖 sandbox.base(Protocol)
+[[tool.importlinter.contracts]]
+name = "agent must only depend on sandbox.base, not concrete sandbox impls"
+type = "forbidden"
+source_modules = ["berry.agent"]
+forbidden_modules = [
+    "berry.sandbox.local",
+    "berry.sandbox.docker",
+    "berry.sandbox.e2b",
+]
+
+# ─── 规则 3:tools 不能依赖 agent(工具是叶子节点,不反向依赖)
+[[tool.importlinter.contracts]]
+name = "tools must not depend on agent"
+type = "forbidden"
+source_modules = ["berry.tools"]
+forbidden_modules = ["berry.agent"]
+
+# ─── 规则 4:db 不能依赖任何业务模块(只暴露仓库接口)
+[[tool.importlinter.contracts]]
+name = "db must not depend on business modules"
+type = "forbidden"
+source_modules = ["berry.db"]
+forbidden_modules = [
+    "berry.feishu",
+    "berry.inbox",
+    "berry.agent",
+    "berry.tools",
+    "berry.skills",
+    "berry.scheduler",
+    "berry.sandbox",
+    "berry.rag",
+]
+
+# ─── 规则 5:domain 是最底层,不依赖任何 Berry 内部模块
+[[tool.importlinter.contracts]]
+name = "domain must not depend on anything inside berry"
+type = "forbidden"
+source_modules = ["berry.domain"]
+forbidden_modules = [
+    "berry.feishu",
+    "berry.inbox",
+    "berry.agent",
+    "berry.tools",
+    "berry.skills",
+    "berry.scheduler",
+    "berry.sandbox",
+    "berry.rag",
+    "berry.db",
+    "berry.observability",
+    "berry.security",
+    "berry.entrypoints",
+]
+
+# ─── 规则 6:rag.service 是独立进程,主进程业务模块不能直接 import service 内部
+#           只能通过 rag.client 调它
+[[tool.importlinter.contracts]]
+name = "main process must not import rag.service internals (use rag.client only)"
+type = "forbidden"
+source_modules = [
+    "berry.feishu",
+    "berry.inbox",
+    "berry.agent",
+    "berry.tools",
+    "berry.skills",
+    "berry.scheduler",
+    "berry.sandbox",
+]
+forbidden_modules = ["berry.rag.service"]
+
+# ─── 规则 7:skills/builtin 只能通过 agent / tools 间接干事,不能直接调 sandbox / db
+[[tool.importlinter.contracts]]
+name = "skills.builtin must go through agent/tools, not bypass to sandbox/db"
+type = "forbidden"
+source_modules = ["berry.skills.builtin"]
+forbidden_modules = [
+    "berry.sandbox",
+    "berry.db",
+]
+
+# ─── 规则 8:层级结构(分层依赖,只能向下)
+# 这是上面规则的总览版,确保整体方向正确
+[[tool.importlinter.contracts]]
+name = "Berry layered architecture (Modular Monolith)"
+type = "layers"
+layers = [
+    # 越上层依赖越外
+    "berry.entrypoints",
+    "berry.feishu | berry.inbox | berry.skills | berry.scheduler",
+    "berry.agent",
+    "berry.tools",
+    "berry.sandbox",
+    "berry.db",
+    "berry.domain",
+]
+ignore_imports = [
+    # observability / security / utils 是横切层,豁免分层规则
+    "berry.** -> berry.observability.**",
+    "berry.** -> berry.security.**",
+    "berry.** -> berry.utils.**",
+]
