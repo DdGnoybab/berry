@@ -1,0 +1,44 @@
+# Berry LLM 模型 catalog
+#
+# 安全规则:
+# - api_key 必须用 ${VAR} 形式,从 .env 读
+# - 明文 api_key 会被解析层拒绝
+# - 此文件入 git,真实凭证在 .env 不入 git
+
+version: 1
+
+models:
+  # ─── DeepSeek(OpenAI ChatCompletions 兼容)───
+  - id: deepseek-chat
+    kind: text
+    api: openai-completions
+    provider: deepseek
+    base_url: https://api.deepseek.com/v1
+    model_name: deepseek-chat
+    api_key: ${DEEPSEEK_KEY}
+    timeout_s: 60
+    capabilities: [tool_use]
+    defaults:
+      temperature: 0.7
+
+  # ─── DeepSeek 通过 /anthropic 端点暴露 Anthropic 兼容协议 ───
+  # 同一个 key,不同 base_url + 不同 api 字段 = 不同协议
+  - id: deepseek-anthropic
+    kind: text
+    api: anthropic-messages
+    provider: deepseek
+    base_url: https://api.deepseek.com/anthropic
+    model_name: deepseek-chat
+    api_key: ${DEEPSEEK_KEY}
+    timeout_s: 60
+    capabilities: [tool_use]
+    defaults:
+      max_tokens: 1024
+
+# 别名:让业务代码用业务名,不写死具体 model_id
+aliases:
+  classify: deepseek-chat
+  main: deepseek-anthropic       # 默认走 Anthropic 协议,验证抽象
+
+# Fallback 链(MVP 解析但不生效,V1 实装)
+fallback: {}

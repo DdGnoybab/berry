@@ -15,8 +15,10 @@ dist/
 .venv/
 venv/
 env/
-.env                # ★ 真实凭证,不要进 git
-!.env.example       # ✓ 模板可以进 git
+# 真实凭证不要进 git
+.env
+# 模板可以进 git
+!.env.example
 
 # ─── uv / pip ───
 .uv-cache/
@@ -37,7 +39,8 @@ coverage.xml
 .ruff_cache/
 
 # ─── IDE / OS ───
-.idea/              # JetBrains 项目配置(本地化,不入库)
+# JetBrains 项目配置(本地化,不入库)
+.idea/
 .vscode/
 *.swp
 *.swo
@@ -56,11 +59,14 @@ workspaces/
 # 第三方研究参考代码(clone 别人项目作灵感参考,不推到我们 repo)
 openclaw_1/
 claw-code_1/
+reference/
 
 # Claude Code 本地配置(包含权限缓存等)
 .claude/
 
 # ─── 仅本地保留的内容(不推 GitHub) ───
 # 这些文件 / 目录纯本地,推 GitHub 没价值或暂不公开
-docs/                       # 设计文档 / 踩坑 / ADR / 名词字典
-CLAUDE.md                   # AI 协作约定(本地工程师用)
+# 设计文档 / 踩坑 / ADR / 名词字典
+docs/
+# AI 协作约定(本地工程师用)
+CLAUDE.md
