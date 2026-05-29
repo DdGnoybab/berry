@@ -113,7 +113,7 @@ uv run python scripts/llm_smoke.py --model main --tools
 ```
 
 ## 配置 LLM
-
+支持任意符合openai兼容与anthropic协议的模型进行配置
 编辑 `config/models.yaml`:
 
 ```yaml
