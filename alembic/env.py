@@ -18,7 +18,7 @@ from sqlmodel import SQLModel
 
 # ★ 关键:import 一次让 SQLModel.metadata 知道有这些表
 from berry.config import settings
-from berry.db import models  # noqa: F401
+from berry.core.db import models  # noqa: F401
 
 # ─── alembic 标准配置 ───
 config = context.config

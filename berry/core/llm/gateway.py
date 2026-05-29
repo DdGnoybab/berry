@@ -10,10 +10,10 @@ Batch 1 范围:
 
 from collections.abc import AsyncIterator
 
-from berry.llm.adapters.base import Adapter
-from berry.llm.errors import LlmAdapterNotFoundError
-from berry.llm.registry import ModelRegistry
-from berry.llm.types import LlmRequest, LlmResponse, StreamEvent
+from berry.core.llm.adapters.base import Adapter
+from berry.core.llm.errors import LlmAdapterNotFoundError
+from berry.core.llm.registry import ModelRegistry
+from berry.core.llm.types import LlmRequest, LlmResponse, StreamEvent
 
 
 class ModelGateway:

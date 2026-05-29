@@ -7,8 +7,8 @@
 内部细节(adapters / registry / watcher)不应被业务模块直接 import。
 """
 
-from berry.llm.gateway import ModelGateway
-from berry.llm.types import (
+from berry.core.llm.gateway import ModelGateway
+from berry.core.llm.types import (
     LlmMessage,
     LlmRequest,
     LlmResponse,

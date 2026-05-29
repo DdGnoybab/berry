@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
-from berry.llm.enums import StopReason
+from berry.core.llm.enums import StopReason
 
 # ─── 角色 ───
 Role = Literal["system", "user", "assistant", "tool"]

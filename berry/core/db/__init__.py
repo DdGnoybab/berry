@@ -7,4 +7,4 @@
 所以模型类都放在 models.py 里一次性导出。
 """
 
-from berry.db import models  # noqa: F401  确保 models 被加载,SQLModel.metadata 里有表
+from berry.core.db import models  # noqa: F401  确保 models 被加载,SQLModel.metadata 里有表

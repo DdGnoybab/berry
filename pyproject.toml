@@ -110,111 +110,72 @@ branch = true
 root_packages = ["berry"]
 include_external_packages = false
 
-# ─── 规则 1:agent 不能依赖 feishu(换 channel 时 agent 不动)
-[[tool.importlinter.contracts]]
-name = "agent must not depend on feishu"
-type = "forbidden"
-source_modules = ["berry.agent"]
-forbidden_modules = ["berry.feishu"]
+# ── Three-layer main direction ──
 
-# ─── 规则 2:agent 不能依赖 sandbox 实现,只能依赖 sandbox.base(Protocol)
+# Rule 1: core does not depend on channels
 [[tool.importlinter.contracts]]
-name = "agent must only depend on sandbox.base, not concrete sandbox impls"
+name = "core does not depend on channels"
 type = "forbidden"
-source_modules = ["berry.agent"]
+source_modules = ["berry.core"]
+forbidden_modules = ["berry.channels"]
+
+# Rule 2: core does not depend on gateway
+[[tool.importlinter.contracts]]
+name = "core does not depend on gateway"
+type = "forbidden"
+source_modules = ["berry.core"]
+forbidden_modules = ["berry.gateway"]
+
+# Rule 3a: channels does not depend on gateway (siblings)
+[[tool.importlinter.contracts]]
+name = "channels does not depend on gateway"
+type = "forbidden"
+source_modules = ["berry.channels"]
+forbidden_modules = ["berry.gateway"]
+
+# Rule 3b: gateway does not depend on channels (siblings)
+[[tool.importlinter.contracts]]
+name = "gateway does not depend on channels"
+type = "forbidden"
+source_modules = ["berry.gateway"]
+forbidden_modules = ["berry.channels"]
+
+# ── core internal refinements ──
+
+# Rule 5: core.tools does not depend on core.agent (tools are leaves)
+[[tool.importlinter.contracts]]
+name = "core.tools does not depend on core.agent"
+type = "forbidden"
+source_modules = ["berry.core.tools"]
+forbidden_modules = ["berry.core.agent"]
+
+# Rule 6: core.db does not depend on any business module
+[[tool.importlinter.contracts]]
+name = "core.db does not depend on business modules"
+type = "forbidden"
+source_modules = ["berry.core.db"]
 forbidden_modules = [
-    "berry.sandbox.local",
-    "berry.sandbox.docker",
-    "berry.sandbox.e2b",
+    "berry.core.agent",
+    "berry.core.tools",
+    "berry.core.skills",
+    "berry.core.sandbox",
+    "berry.core.rag",
+    "berry.channels",
+    "berry.gateway",
 ]
 
-# ─── 规则 3:tools 不能依赖 agent(工具是叶子节点,不反向依赖)
-[[tool.importlinter.contracts]]
-name = "tools must not depend on agent"
-type = "forbidden"
-source_modules = ["berry.tools"]
-forbidden_modules = ["berry.agent"]
+# ── Top-level base ──
 
-# ─── 规则 4:db 不能依赖任何业务模块(只暴露仓库接口)
+# Rule 7: domain does not import any berry internal module
 [[tool.importlinter.contracts]]
-name = "db must not depend on business modules"
-type = "forbidden"
-source_modules = ["berry.db"]
-forbidden_modules = [
-    "berry.feishu",
-    "berry.inbox",
-    "berry.agent",
-    "berry.tools",
-    "berry.skills",
-    "berry.scheduler",
-    "berry.sandbox",
-    "berry.rag",
-]
-
-# ─── 规则 5:domain 是最底层,不依赖任何 Berry 内部模块
-[[tool.importlinter.contracts]]
-name = "domain must not depend on anything inside berry"
+name = "domain does not import any berry module"
 type = "forbidden"
 source_modules = ["berry.domain"]
 forbidden_modules = [
-    "berry.feishu",
-    "berry.inbox",
-    "berry.agent",
-    "berry.tools",
-    "berry.skills",
-    "berry.scheduler",
-    "berry.sandbox",
-    "berry.rag",
-    "berry.db",
+    "berry.channels",
+    "berry.gateway",
+    "berry.core",
     "berry.observability",
     "berry.security",
     "berry.entrypoints",
-]
-
-# ─── 规则 6:rag.service 是独立进程,主进程业务模块不能直接 import service 内部
-#           只能通过 rag.client 调它
-[[tool.importlinter.contracts]]
-name = "main process must not import rag.service internals (use rag.client only)"
-type = "forbidden"
-source_modules = [
-    "berry.feishu",
-    "berry.inbox",
-    "berry.agent",
-    "berry.tools",
-    "berry.skills",
-    "berry.scheduler",
-    "berry.sandbox",
-]
-forbidden_modules = ["berry.rag.service"]
-
-# ─── 规则 7:skills/builtin 只能通过 agent / tools 间接干事,不能直接调 sandbox / db
-[[tool.importlinter.contracts]]
-name = "skills.builtin must go through agent/tools, not bypass to sandbox/db"
-type = "forbidden"
-source_modules = ["berry.skills.builtin"]
-forbidden_modules = [
-    "berry.sandbox",
-    "berry.db",
-]
-
-# ─── 规则 8:层级结构(分层依赖,只能向下)
-# 这是上面规则的总览版,确保整体方向正确
-[[tool.importlinter.contracts]]
-name = "Berry layered architecture (Modular Monolith)"
-type = "layers"
-layers = [
-    # 越上层依赖越外
-    "berry.entrypoints",
-    "berry.feishu | berry.inbox | berry.skills | berry.scheduler",
-    "berry.agent",
-    "berry.tools",
-    "berry.sandbox",
-    "berry.db",
-    "berry.domain",
-]
-ignore_imports = [
-    # observability / security / utils 是横切层,豁免分层规则
-    "berry.** -> berry.observability.**",
-    "berry.** -> berry.security.**",
-    "berry.** -> berry.utils.**",
 ]

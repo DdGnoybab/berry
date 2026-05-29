@@ -14,8 +14,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-from berry.llm.enums import KnownApi, ModelKind
-from berry.llm.errors import LlmConfigError
+from berry.core.llm.enums import KnownApi, ModelKind
+from berry.core.llm.errors import LlmConfigError
 
 _ENV_PLACEHOLDER_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
 

@@ -8,8 +8,8 @@ Adapter 只做「中立类型 ↔ 协议格式」转换 + SDK 调用,
 from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
-from berry.llm.config import ModelEntry
-from berry.llm.types import LlmRequest, LlmResponse, StreamEvent
+from berry.core.llm.config import ModelEntry
+from berry.core.llm.types import LlmRequest, LlmResponse, StreamEvent
 
 
 @runtime_checkable

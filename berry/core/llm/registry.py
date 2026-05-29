@@ -5,9 +5,9 @@ Batch 1 只实现 load() + get();reload / watch 留给 Batch 4。
 
 from pathlib import Path
 
-from berry.llm.config import ModelEntry, ModelsConfig, load_models_config
-from berry.llm.enums import ModelKind
-from berry.llm.errors import LlmModelNotFoundError
+from berry.core.llm.config import ModelEntry, ModelsConfig, load_models_config
+from berry.core.llm.enums import ModelKind
+from berry.core.llm.errors import LlmModelNotFoundError
 
 
 class ModelRegistry:

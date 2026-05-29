@@ -12,8 +12,8 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 
 from berry import __version__
-from berry.db.session import engine
-from berry.entrypoints.health import router as health_router
+from berry.core.db.session import engine
+from berry.gateway.http.health import router as health_router
 from berry.observability.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)

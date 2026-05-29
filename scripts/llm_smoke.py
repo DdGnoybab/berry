@@ -24,12 +24,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from berry.llm.adapters.anthropic_messages import AnthropicMessagesAdapter  # noqa: E402
-from berry.llm.adapters.openai_completions import OpenAICompletionsAdapter  # noqa: E402
-from berry.llm.enums import KnownApi  # noqa: E402
-from berry.llm.gateway import ModelGateway  # noqa: E402
-from berry.llm.registry import ModelRegistry  # noqa: E402
-from berry.llm.types import (  # noqa: E402
+from berry.core.llm.adapters.anthropic_messages import AnthropicMessagesAdapter  # noqa: E402
+from berry.core.llm.adapters.openai_completions import OpenAICompletionsAdapter  # noqa: E402
+from berry.core.llm.enums import KnownApi  # noqa: E402
+from berry.core.llm.gateway import ModelGateway  # noqa: E402
+from berry.core.llm.registry import ModelRegistry  # noqa: E402
+from berry.core.llm.types import (  # noqa: E402
     LlmMessage,
     LlmRequest,
     LlmTool,

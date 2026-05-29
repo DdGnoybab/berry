@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from berry import __version__
-from berry.db.session import engine
+from berry.core.db.session import engine
 from berry.observability.logging import get_logger
 
 logger = get_logger(__name__)
