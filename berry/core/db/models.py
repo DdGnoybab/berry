@@ -147,12 +147,55 @@ class Message(SQLModel, table=True):
         )
     )
     role: str = Field(sa_column=Column(String, nullable=False))
-    content: dict[str, Any] = Field(
+    # content holds a JSON list of ContentBlock dicts (see berry/core/llm/types.py).
+    # Stored as JSONB; typed as `list` here so SQLModel doesn't infer a stricter shape.
+    content: list[Any] = Field(
         sa_column=Column(JSONB, nullable=False),
     )
     metadata_: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column("metadata", JSONB, nullable=False, server_default="{}"),
+    )
+    created_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True), nullable=False, server_default=func.now()
+        ),
+    )
+
+
+# ─── LlmCallLog ────────────────────────────────────────
+
+
+class LlmCallLog(SQLModel, table=True):
+    """Full audit log of every LLM call: request + response as JSONB.
+
+    Streamed responses are reassembled into a complete LlmResponse before
+    being written here (Round 3 in ConversationRuntime).
+    """
+
+    __tablename__ = "llm_call_logs"  # type: ignore[assignment]
+
+    id: UUID = Field(
+        default_factory=uuid4,
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            primary_key=True,
+            server_default=_UUID_SERVER_DEFAULT,
+        ),
+    )
+    session_id: UUID = Field(
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            ForeignKey("sessions.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    request: dict[str, Any] = Field(
+        sa_column=Column(JSONB, nullable=False),
+    )
+    response: dict[str, Any] = Field(
+        sa_column=Column(JSONB, nullable=False),
     )
     created_at: datetime = Field(
         default_factory=_now_utc,
