@@ -20,6 +20,9 @@ env/
 # 模板可以进 git
 !.env.example
 
+# MCP 服务器配置带真实 token,绝不进 git(同 .env 思路)
+.mcp.json
+
 # ─── uv / pip ───
 .uv-cache/
 pip-wheel-metadata/
