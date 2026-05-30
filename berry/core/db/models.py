@@ -203,3 +203,69 @@ class LlmCallLog(SQLModel, table=True):
             DateTime(timezone=True), nullable=False, server_default=func.now()
         ),
     )
+
+
+# ─── Goal ───────────────────────────────────────────────
+
+
+class Goal(SQLModel, table=True):
+    """A learning goal owned by a user.
+
+    domain="learning" Day-1; "work"/"style"/"diet" added without schema change
+    in future rounds (ADR-0003).
+    """
+
+    __tablename__ = "goals"  # type: ignore[assignment]
+
+    id: UUID = Field(
+        default_factory=uuid4,
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            primary_key=True,
+            server_default=_UUID_SERVER_DEFAULT,
+        ),
+    )
+    user_id: UUID = Field(
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    domain: str = Field(
+        sa_column=Column(String, nullable=False, server_default="learning"),
+    )
+    title: str = Field(sa_column=Column(String, nullable=False))
+    status: str = Field(
+        default="drafting",
+        sa_column=Column(String, nullable=False, server_default="drafting"),
+    )
+    workspace_path: str = Field(sa_column=Column(String, nullable=False))
+    current_milestone_id: UUID | None = Field(
+        default=None,
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            ForeignKey("milestones.id", ondelete="SET NULL", use_alter=True),
+            nullable=True,
+        ),
+    )
+
+    metadata_: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column("metadata", JSONB, nullable=False, server_default="{}"),
+    )
+    created_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True), nullable=False, server_default=func.now()
+        ),
+    )
+    updated_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True),
+            nullable=False,
+            server_default=func.now(),
+            onupdate=func.now(),
+        ),
+    )

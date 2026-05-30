@@ -179,3 +179,37 @@ forbidden_modules = [
     "berry.security",
     "berry.entrypoints",
 ]
+
+# ── Rules added by ADR-0003: assistants/ business layer ──
+
+# Rule 8: core does not depend on assistants
+[[tool.importlinter.contracts]]
+name = "core does not depend on assistants"
+type = "forbidden"
+source_modules = ["berry.core"]
+forbidden_modules = ["berry.assistants"]
+
+# Rule 9: channels does not depend on assistants
+[[tool.importlinter.contracts]]
+name = "channels does not depend on assistants"
+type = "forbidden"
+source_modules = ["berry.channels"]
+forbidden_modules = ["berry.assistants"]
+
+# Rule 10: gateway does not depend on assistants
+[[tool.importlinter.contracts]]
+name = "gateway does not depend on assistants"
+type = "forbidden"
+source_modules = ["berry.gateway"]
+forbidden_modules = ["berry.assistants"]
+
+# Rule 11: assistants are siblings — no cross-import between them.
+# Currently only learning exists; this contract is a placeholder that
+# documents the rule. Add other assistant subpackages to forbidden_modules
+# whenever a new one is introduced (e.g. berry.assistants.work).
+[[tool.importlinter.contracts]]
+name = "assistants.learning does not depend on other assistants"
+type = "forbidden"
+source_modules = ["berry.assistants.learning"]
+forbidden_modules = []   # extend as new assistants ship
+
