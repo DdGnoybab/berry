@@ -122,9 +122,9 @@ class StreamAccumulator:
 class _ToolCallBuilder:
     """Buffer for a single tool_use block being streamed in."""
 
-    __slots__ = ("id", "name", "input_json")
+    __slots__ = ("id", "input_json", "name")
 
-    def __init__(self, id: str, name: str) -> None:  # noqa: A002 (id is part of the LLM API contract)
+    def __init__(self, id: str, name: str) -> None:
         self.id = id
         self.name = name
         self.input_json: list[str] = []

@@ -10,7 +10,7 @@ The Protocol is runtime-checkable so isinstance(x, Tool) works in tests.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, ClassVar, Protocol, runtime_checkable
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -42,10 +42,15 @@ class Tool(Protocol):
     - provide a `description` (LLM uses this to decide when to call)
     - provide a JSON Schema `input_schema` (LLM uses this to construct args)
     - implement `execute(args, ctx) -> str` returning the ToolResultBlock.output text
+
+    name / description / input_schema are class-level constants for every tool
+    we know about — so they are declared as ``ClassVar`` here. Implementers may
+    set them either as bare class attributes (Python erases the type at runtime)
+    or with explicit ``ClassVar`` annotations; both satisfy the Protocol.
     """
 
-    name: str
-    description: str
-    input_schema: dict[str, Any]
+    name: ClassVar[str]
+    description: ClassVar[str]
+    input_schema: ClassVar[dict[str, Any]]
 
     async def execute(self, args: dict[str, Any], ctx: ToolContext) -> str: ...
