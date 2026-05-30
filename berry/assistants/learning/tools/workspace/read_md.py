@@ -13,8 +13,8 @@ from uuid import UUID
 
 from berry.assistants.learning.repos.material_repo import MaterialRepo
 from berry.assistants.learning.repos.milestone_repo import MilestoneRepo
+from berry.assistants.learning.tools.workspace.paths import resolve_material_path
 from berry.core.tools.base import ToolContext
-from berry.core.tools.workspace.paths import resolve_material_path
 
 # Cap how many chars of a single .md we feed to the LLM in one shot.
 # 30k matches web_fetch's truncation budget — keeps a single read from

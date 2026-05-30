@@ -12,10 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from berry.assistants.learning.repos.goal_repo import GoalRepo
 from berry.assistants.learning.repos.material_repo import MaterialRepo
 from berry.assistants.learning.repos.milestone_repo import MilestoneRepo
+from berry.assistants.learning.tools.workspace.paths import WorkspacePathError
+from berry.assistants.learning.tools.workspace.write_md import WriteMdTool
 from berry.core.db.repos.user_repo import UserRepo
 from berry.core.tools.base import ToolContext
-from berry.core.tools.workspace.paths import WorkspacePathError
-from berry.core.tools.workspace.write_md import WriteMdTool
 
 
 async def _seed(db_session: AsyncSession, suffix: str) -> tuple[UUID, UUID]:

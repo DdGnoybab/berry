@@ -26,8 +26,8 @@ from uuid import UUID
 
 from berry.assistants.learning.repos.material_repo import MaterialRepo
 from berry.assistants.learning.repos.milestone_repo import MilestoneRepo
+from berry.assistants.learning.tools.workspace.paths import resolve_material_path
 from berry.core.tools.base import ToolContext
-from berry.core.tools.workspace.paths import resolve_material_path
 
 
 class EditMdTool:

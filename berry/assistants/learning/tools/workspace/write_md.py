@@ -25,11 +25,11 @@ from uuid import UUID
 
 from berry.assistants.learning.repos.material_repo import MaterialRepo
 from berry.assistants.learning.repos.milestone_repo import MilestoneRepo
-from berry.core.tools.base import ToolContext
-from berry.core.tools.workspace.paths import (
+from berry.assistants.learning.tools.workspace.paths import (
     WorkspacePathError,
     resolve_material_path,
 )
+from berry.core.tools.base import ToolContext
 
 
 class WriteMdTool:

@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from berry.core.tools.workspace.paths import (
+from berry.assistants.learning.tools.workspace.paths import (
     WorkspacePathError,
     resolve_material_path,
     resolve_milestone_dir,

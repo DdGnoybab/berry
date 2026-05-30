@@ -12,10 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from berry.assistants.learning.repos.goal_repo import GoalRepo
 from berry.assistants.learning.repos.material_repo import MaterialRepo
 from berry.assistants.learning.repos.milestone_repo import MilestoneRepo
+from berry.assistants.learning.tools.workspace.edit_md import EditMdTool
+from berry.assistants.learning.tools.workspace.write_md import WriteMdTool
 from berry.core.db.repos.user_repo import UserRepo
 from berry.core.tools.base import ToolContext
-from berry.core.tools.workspace.edit_md import EditMdTool
-from berry.core.tools.workspace.write_md import WriteMdTool
 
 
 def _ctx(db_session: AsyncSession, data_root: Path) -> ToolContext:

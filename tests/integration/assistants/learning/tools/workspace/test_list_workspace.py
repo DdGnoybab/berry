@@ -11,10 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from berry.assistants.learning.repos.goal_repo import GoalRepo
 from berry.assistants.learning.repos.milestone_repo import MilestoneRepo
+from berry.assistants.learning.tools.workspace.list_workspace import ListWorkspaceTool
+from berry.assistants.learning.tools.workspace.write_md import WriteMdTool
 from berry.core.db.repos.user_repo import UserRepo
 from berry.core.tools.base import ToolContext
-from berry.core.tools.workspace.list_workspace import ListWorkspaceTool
-from berry.core.tools.workspace.write_md import WriteMdTool
 
 
 def _ctx(db_session: AsyncSession, data_root: Path) -> ToolContext:
