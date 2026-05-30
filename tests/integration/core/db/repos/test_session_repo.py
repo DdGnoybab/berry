@@ -119,3 +119,55 @@ async def test_list_active_by_user_returns_only_active(
     ids = {row.id for row in rows}
     assert active.id in ids
     assert completed.id not in ids
+
+
+@pytest.mark.asyncio
+async def test_create_new_makes_fresh_session(db_session: AsyncSession) -> None:
+    user = await _make_user(db_session, "create_new")
+    repo = SessionRepo(db_session)
+    s = await repo.create_new(user_id=user.id, channel=Channel.CLI)
+    assert s.id is not None
+    assert s.user_id == user.id
+    assert s.channel == "cli"
+    assert s.channel_chat_id is None
+    assert s.status == SessionStatus.ACTIVE.value
+
+
+@pytest.mark.asyncio
+async def test_create_new_closes_prior_active_sessions(
+    db_session: AsyncSession,
+) -> None:
+    """A new CLI launch closes any prior active CLI session, preserving the
+    invariant `get_or_create` relies on (at most one active per scope).
+    """
+    user = await _make_user(db_session, "close_prior")
+    repo = SessionRepo(db_session)
+    first = await repo.create_new(user_id=user.id, channel=Channel.CLI)
+    second = await repo.create_new(user_id=user.id, channel=Channel.CLI)
+
+    assert first.id != second.id
+    refreshed_first = await repo.get_by_id(first.id)
+    refreshed_second = await repo.get_by_id(second.id)
+    assert refreshed_first is not None
+    assert refreshed_second is not None
+    assert refreshed_first.status == SessionStatus.COMPLETED.value
+    assert refreshed_second.status == SessionStatus.ACTIVE.value
+
+
+@pytest.mark.asyncio
+async def test_create_new_does_not_affect_other_scopes(
+    db_session: AsyncSession,
+) -> None:
+    """create_new(channel=cli) must NOT close active feishu sessions for the
+    same user.
+    """
+    user = await _make_user(db_session, "scope_isolation")
+    repo = SessionRepo(db_session)
+    feishu_session = await repo.get_or_create(
+        user_id=user.id, channel=Channel.FEISHU, chat_id="chat_x"
+    )
+    await repo.create_new(user_id=user.id, channel=Channel.CLI)
+
+    refreshed_feishu = await repo.get_by_id(feishu_session.id)
+    assert refreshed_feishu is not None
+    assert refreshed_feishu.status == SessionStatus.ACTIVE.value

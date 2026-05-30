@@ -54,6 +54,43 @@ class SessionRepo:
         await self._db.refresh(new)
         return new
 
+    async def create_new(
+        self,
+        user_id: UUID,
+        channel: Channel,
+        chat_id: str | None = None,
+    ) -> Session:
+        """Always create a fresh active session. Use when a new conversation
+        boundary is intentional (e.g. a CLI REPL launch starts a new session,
+        unlike feishu where get_or_create reuses the chat-window session).
+
+        Closes any prior active session matching (user_id, channel, chat_id)
+        by setting them to ``completed``, so the invariant
+        "at most one active session per (user, channel, chat_id)" stays true
+        for ``get_or_create``.
+        """
+        # Close prior active sessions for this scope
+        await self._db.execute(
+            update(Session)
+            .where(
+                Session.user_id == user_id,
+                Session.channel == channel.value,
+                Session.channel_chat_id == chat_id,
+                Session.status == SessionStatus.ACTIVE.value,
+            )
+            .values(status=SessionStatus.COMPLETED.value)
+        )
+        new = Session(
+            user_id=user_id,
+            channel=channel.value,
+            channel_chat_id=chat_id,
+            status=SessionStatus.ACTIVE.value,
+        )
+        self._db.add(new)
+        await self._db.commit()
+        await self._db.refresh(new)
+        return new
+
     async def get_by_id(self, session_id: UUID) -> Session | None:
         result = await self._db.execute(select(Session).where(Session.id == session_id))
         return result.scalar_one_or_none()
