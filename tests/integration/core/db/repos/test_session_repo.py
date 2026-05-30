@@ -44,10 +44,14 @@ async def test_get_or_create_reuses_active_session(db_session: AsyncSession) -> 
     user = await _make_user(db_session, "reuse")
     repo = SessionRepo(db_session)
     first = await repo.get_or_create(
-        user_id=user.id, channel=Channel.FEISHU, chat_id="chat_reuse",
+        user_id=user.id,
+        channel=Channel.FEISHU,
+        chat_id="chat_reuse",
     )
     second = await repo.get_or_create(
-        user_id=user.id, channel=Channel.FEISHU, chat_id="chat_reuse",
+        user_id=user.id,
+        channel=Channel.FEISHU,
+        chat_id="chat_reuse",
     )
     assert first.id == second.id
 
@@ -59,10 +63,14 @@ async def test_get_or_create_creates_new_for_different_chat(
     user = await _make_user(db_session, "diffchat")
     repo = SessionRepo(db_session)
     first = await repo.get_or_create(
-        user_id=user.id, channel=Channel.FEISHU, chat_id="chat_a",
+        user_id=user.id,
+        channel=Channel.FEISHU,
+        chat_id="chat_a",
     )
     second = await repo.get_or_create(
-        user_id=user.id, channel=Channel.FEISHU, chat_id="chat_b",
+        user_id=user.id,
+        channel=Channel.FEISHU,
+        chat_id="chat_b",
     )
     assert first.id != second.id
 
@@ -79,7 +87,9 @@ async def test_update_status_changes_value(db_session: AsyncSession) -> None:
     user = await _make_user(db_session, "status")
     repo = SessionRepo(db_session)
     session = await repo.get_or_create(
-        user_id=user.id, channel=Channel.FEISHU, chat_id="chat_status",
+        user_id=user.id,
+        channel=Channel.FEISHU,
+        chat_id="chat_status",
     )
     await repo.update_status(session.id, SessionStatus.COMPLETED)
     fresh = await repo.get_by_id(session.id)
@@ -94,10 +104,14 @@ async def test_list_active_by_user_returns_only_active(
     user = await _make_user(db_session, "listactive")
     repo = SessionRepo(db_session)
     active = await repo.get_or_create(
-        user_id=user.id, channel=Channel.FEISHU, chat_id="chat_active",
+        user_id=user.id,
+        channel=Channel.FEISHU,
+        chat_id="chat_active",
     )
     completed = await repo.get_or_create(
-        user_id=user.id, channel=Channel.FEISHU, chat_id="chat_completed",
+        user_id=user.id,
+        channel=Channel.FEISHU,
+        chat_id="chat_completed",
     )
     await repo.update_status(completed.id, SessionStatus.COMPLETED)
 

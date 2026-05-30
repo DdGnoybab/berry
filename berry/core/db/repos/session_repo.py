@@ -55,18 +55,16 @@ class SessionRepo:
         return new
 
     async def get_by_id(self, session_id: UUID) -> Session | None:
-        result = await self._db.execute(
-            select(Session).where(Session.id == session_id)
-        )
+        result = await self._db.execute(select(Session).where(Session.id == session_id))
         return result.scalar_one_or_none()
 
     async def update_status(
-        self, session_id: UUID, status: SessionStatus,
+        self,
+        session_id: UUID,
+        status: SessionStatus,
     ) -> None:
         await self._db.execute(
-            update(Session)
-            .where(Session.id == session_id)
-            .values(status=status.value)
+            update(Session).where(Session.id == session_id).values(status=status.value)
         )
         await self._db.commit()
 

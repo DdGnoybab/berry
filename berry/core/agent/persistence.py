@@ -23,7 +23,8 @@ from berry.domain.enums import Channel, SessionStatus
 
 
 async def load_agent_session(
-    session_id: UUID, db: DbSession,
+    session_id: UUID,
+    db: DbSession,
 ) -> AgentSession | None:
     """Fetch sessions row + all messages rows; reassemble AgentSession.
 
@@ -50,7 +51,9 @@ async def load_agent_session(
 
 
 async def save_message(
-    session_id: UUID, message: LlmMessage, db: DbSession,
+    session_id: UUID,
+    message: LlmMessage,
+    db: DbSession,
 ) -> UUID:
     """Persist one LlmMessage as a row in `messages`. Returns the new row id."""
     row = await MessageRepo(db).append(session_id, message)
@@ -60,6 +63,4 @@ async def save_message(
 def _message_row_to_llm(row: Message) -> LlmMessage:
     """DB row → LlmMessage. content jsonb is validated against the discriminated
     union, so unknown block types raise immediately rather than silently passing."""
-    return LlmMessage.model_validate(
-        {"role": row.role, "content": row.content}
-    )
+    return LlmMessage.model_validate({"role": row.role, "content": row.content})

@@ -27,7 +27,9 @@ async def _make_session(db_session: AsyncSession, suffix: str):
         display_name=f"Msg Test {suffix}",
     )
     return await SessionRepo(db_session).get_or_create(
-        user_id=user.id, channel=Channel.FEISHU, chat_id=f"chat_msg_{suffix}",
+        user_id=user.id,
+        channel=Channel.FEISHU,
+        chat_id=f"chat_msg_{suffix}",
     )
 
 

@@ -28,7 +28,9 @@ async def _bootstrap_session(db_session: AsyncSession, suffix: str):
         display_name=f"Persist {suffix}",
     )
     return await SessionRepo(db_session).get_or_create(
-        user_id=user.id, channel=Channel.FEISHU, chat_id=f"chat_persist_{suffix}",
+        user_id=user.id,
+        channel=Channel.FEISHU,
+        chat_id=f"chat_persist_{suffix}",
     )
 
 
@@ -108,7 +110,9 @@ async def test_save_and_load_round_trip_tool_result(
         role="user",
         content=[
             ToolResultBlock(
-                tool_use_id="toolu_a", output="found 3 TODOs", is_error=False,
+                tool_use_id="toolu_a",
+                output="found 3 TODOs",
+                is_error=False,
             ),
         ],
     )

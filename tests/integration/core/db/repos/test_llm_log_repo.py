@@ -28,7 +28,9 @@ async def _make_session(db_session: AsyncSession, suffix: str):
         display_name=f"LlmLog {suffix}",
     )
     return await SessionRepo(db_session).get_or_create(
-        user_id=user.id, channel=Channel.FEISHU, chat_id=f"chat_llmlog_{suffix}",
+        user_id=user.id,
+        channel=Channel.FEISHU,
+        chat_id=f"chat_llmlog_{suffix}",
     )
 
 
@@ -110,8 +112,6 @@ async def test_append_visible_via_select(db_session: AsyncSession) -> None:
             usage=Usage(),
         ),
     )
-    result = await db_session.execute(
-        select(LlmCallLog).where(LlmCallLog.session_id == session.id)
-    )
+    result = await db_session.execute(select(LlmCallLog).where(LlmCallLog.session_id == session.id))
     rows = list(result.scalars().all())
     assert len(rows) == 1

@@ -18,9 +18,10 @@ from collections.abc import AsyncIterator, Iterator
 import psycopg
 import pytest
 import pytest_asyncio
-from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from alembic import command
 
 # Local PG connection — matches your .env's DATABASE_URL.
 _PG_HOST = os.environ.get("BERRY_TEST_PG_HOST", "localhost")
@@ -33,8 +34,7 @@ _PG_ADMIN_DB = os.environ.get("BERRY_TEST_PG_ADMIN_DB", "postgres")
 
 def _admin_dsn(dbname: str = _PG_ADMIN_DB) -> str:
     return (
-        f"host={_PG_HOST} port={_PG_PORT} "
-        f"user={_PG_USER} password={_PG_PASSWORD} dbname={dbname}"
+        f"host={_PG_HOST} port={_PG_PORT} user={_PG_USER} password={_PG_PASSWORD} dbname={dbname}"
     )
 
 
@@ -61,10 +61,7 @@ def test_db_name() -> Iterator[str]:
 @pytest.fixture(scope="session")
 def postgres_async_url(test_db_name: str) -> str:
     """Async URL for sqlalchemy[asyncio] (uses asyncpg)."""
-    return (
-        f"postgresql+asyncpg://{_PG_USER}:{_PG_PASSWORD}"
-        f"@{_PG_HOST}:{_PG_PORT}/{test_db_name}"
-    )
+    return f"postgresql+asyncpg://{_PG_USER}:{_PG_PASSWORD}@{_PG_HOST}:{_PG_PORT}/{test_db_name}"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -79,8 +76,7 @@ def apply_migrations(test_db_name: str) -> Iterator[None]:
     from berry.config import settings
 
     test_url_unprefixed = (
-        f"postgresql://{_PG_USER}:{_PG_PASSWORD}"
-        f"@{_PG_HOST}:{_PG_PORT}/{test_db_name}"
+        f"postgresql://{_PG_USER}:{_PG_PASSWORD}@{_PG_HOST}:{_PG_PORT}/{test_db_name}"
     )
     original_url = settings.database_url
     object.__setattr__(settings, "database_url", test_url_unprefixed)
