@@ -1,0 +1,23 @@
+# Berry web_search 配置
+#
+# 跟 config/models.yaml 同样的安全规则:
+# - api_key 必须用 ${VAR} 形式从 .env 读
+# - 明文 api_key 会被解析层拒绝
+# - 此文件入 git,真实凭证在 .env 不入 git
+
+version: 1
+
+default: tavily
+
+providers:
+  # ─── Tavily(LLM 专用搜索,免费 1k 次/月)───
+  tavily:
+    type: tavily
+    api_key: ${TAVILY_KEY}
+    timeout_s: 15
+
+  # ─── 占位:接 union-search-skill(TODO,Round 3 之后)───
+  # union:
+  #   type: union-search
+  #   base_url: http://127.0.0.1:8765
+  #   timeout_s: 15
