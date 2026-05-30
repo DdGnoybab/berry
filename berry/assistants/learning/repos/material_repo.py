@@ -70,6 +70,25 @@ class MaterialRepo:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_milestone_filename(
+        self,
+        milestone_id: UUID,
+        filename: str,
+    ) -> Material | None:
+        """Fetch a material by its (milestone, filename) UNIQUE pair.
+
+        Used by write_md to pre-check uniqueness before writing the file —
+        catching the conflict in Python is cleaner than letting the DB raise
+        IntegrityError mid-write.
+        """
+        result = await self._db.execute(
+            select(Material).where(
+                Material.milestone_id == milestone_id,
+                Material.filename == filename,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def list_by_milestone(self, milestone_id: UUID) -> list[Material]:
         """Return all materials for a milestone ordered by created_at, then id.
 
