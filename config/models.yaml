@@ -33,7 +33,11 @@ models:
     timeout_s: 60
     capabilities: [tool_use]
     defaults:
-      max_tokens: 1024
+      # 8192 给 LLM 写完整 .md 内容 + tool_use input JSON 的余地。
+      # 1024 太小:LLM 调 write_md 写一篇内容稍长的文章会被截断,
+      # ToolCallDelta 的 partial_json 还没写完就 stop_reason=max_tokens,
+      # 导致 StreamAccumulator 解析半截 JSON 失败。
+      max_tokens: 8192
 
 # 别名:让业务代码用业务名,不写死具体 model_id
 aliases:
