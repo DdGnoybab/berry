@@ -43,14 +43,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "ruff>=0.7",
-    "mypy>=1.13",
-    "pytest>=8.3",
-    "pytest-asyncio>=0.24",
-    "pytest-cov>=5.0",
-    "import-linter>=2.0",
-]
+# 真正面向 *消费者* 的可选 feature(留在 PEP 621 形式,支持 pip 的 `berry[rag]` 用法)
 rag = [
     # Personal RAG service 才需要
     "sqlite-vec>=0.1",
@@ -62,6 +55,22 @@ docker-sandbox = [
 redis = [
     # V1 起接入
     "redis>=5.0",
+]
+
+# ─── PEP 735 dependency groups ──────────────────────────
+# `uv sync` 默认安装这里的依赖,不需要 `--extra dev` / `--group dev` 参数。
+# 这是 dev / lint / type / test 这种「日常都要装」的工具的正确位置,
+# 比 [project.optional-dependencies] 语义更准(那是给消费者选的可选 feature)。
+# pip 24.1+ 也支持 PEP 735,可以 `pip install --group dev .` 装。
+
+[dependency-groups]
+dev = [
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
+    "import-linter>=2.0",
 ]
 
 [project.scripts]
