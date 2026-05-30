@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,6 +17,13 @@ class Settings(BaseSettings):
         description="Postgres URL,无 driver 前缀。例:postgresql://user:pwd@host:5432/db",
     )
     log_level: str = "INFO"
+    data_root: Path = Field(
+        default=Path("data"),
+        description=(
+            "本地数据目录的根。Workspace 工具(Round 3 起)会在这下面写 .md。"
+            "Goal 的 workspace_path 都是相对此目录的相对路径。"
+        ),
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
