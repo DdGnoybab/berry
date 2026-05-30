@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, UniqueConstraint, func, text
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlmodel import Field, SQLModel
 
@@ -267,5 +267,183 @@ class Goal(SQLModel, table=True):
             nullable=False,
             server_default=func.now(),
             onupdate=func.now(),
+        ),
+    )
+
+
+# ─── Milestone ──────────────────────────────────────────
+
+
+class Milestone(SQLModel, table=True):
+    """One step inside a Goal. Ordered by `order_index` (0-based)."""
+
+    __tablename__ = "milestones"  # type: ignore[assignment]
+    __table_args__ = (
+        UniqueConstraint("goal_id", "order_index", name="uq_milestones_order"),
+    )
+
+    id: UUID = Field(
+        default_factory=uuid4,
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            primary_key=True,
+            server_default=_UUID_SERVER_DEFAULT,
+        ),
+    )
+    goal_id: UUID = Field(
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            ForeignKey("goals.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    order_index: int = Field(sa_column=Column(Integer, nullable=False))
+    name: str = Field(sa_column=Column(String, nullable=False))
+    description: str = Field(sa_column=Column(String, nullable=False))
+    status: str = Field(
+        default="pending",
+        sa_column=Column(String, nullable=False, server_default="pending"),
+    )
+    passed_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True),
+    )
+
+    metadata_: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column("metadata", JSONB, nullable=False, server_default="{}"),
+    )
+    created_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True), nullable=False, server_default=func.now()
+        ),
+    )
+    updated_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True),
+            nullable=False,
+            server_default=func.now(),
+            onupdate=func.now(),
+        ),
+    )
+
+
+# ─── Material ───────────────────────────────────────────
+
+
+class Material(SQLModel, table=True):
+    """A .md file backing a Milestone. File system is the source of truth;
+    this row is metadata + index. See spec §八.8.3.
+    """
+
+    __tablename__ = "materials"  # type: ignore[assignment]
+    __table_args__ = (
+        UniqueConstraint("milestone_id", "filename", name="uq_materials_filename"),
+    )
+
+    id: UUID = Field(
+        default_factory=uuid4,
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            primary_key=True,
+            server_default=_UUID_SERVER_DEFAULT,
+        ),
+    )
+    milestone_id: UUID = Field(
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            ForeignKey("milestones.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    filename: str = Field(sa_column=Column(String, nullable=False))
+    source_url: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    source_title: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    summary: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    size_bytes: int = Field(sa_column=Column(Integer, nullable=False, server_default="0"))
+    content_hash: str = Field(sa_column=Column(String, nullable=False))
+
+    metadata_: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column("metadata", JSONB, nullable=False, server_default="{}"),
+    )
+    created_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True), nullable=False, server_default=func.now()
+        ),
+    )
+    updated_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True),
+            nullable=False,
+            server_default=func.now(),
+            onupdate=func.now(),
+        ),
+    )
+
+
+# ─── Attempt ────────────────────────────────────────────
+
+
+class Attempt(SQLModel, table=True):
+    """One Q+answer+score cycle for a Milestone. See spec §八.8.4."""
+
+    __tablename__ = "attempts"  # type: ignore[assignment]
+
+    id: UUID = Field(
+        default_factory=uuid4,
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            primary_key=True,
+            server_default=_UUID_SERVER_DEFAULT,
+        ),
+    )
+    milestone_id: UUID = Field(
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            ForeignKey("milestones.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    kind: str = Field(sa_column=Column(String, nullable=False))    # "application" | "choice"
+    question: str = Field(sa_column=Column(String, nullable=False))
+
+    # choice-specific (null for application)
+    choices: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True),
+    )
+    correct_index: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, nullable=True),
+    )
+
+    user_answer: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+
+    # scoring
+    score: int | None = Field(default=None, sa_column=Column(Integer, nullable=True))
+    reasoning: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    reference_points: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True),
+    )
+
+    user_decision: str | None = Field(
+        default=None,
+        sa_column=Column(String, nullable=True),  # "next" | "retry" | "reread" | null
+    )
+
+    metadata_: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column("metadata", JSONB, nullable=False, server_default="{}"),
+    )
+    created_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True), nullable=False, server_default=func.now()
         ),
     )
