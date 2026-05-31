@@ -181,12 +181,30 @@ async def _async_main() -> None:
     )
 
     # ── Run REPL ───────────────────────────────────────────
+    # Round 1 of Round 4: run_repl now expects a TurnRunner Protocol
+    # (not (runtime, system_prompt)). Wrap the bare ConversationRuntime
+    # with a closure that binds the system prompt. Round 4 Step 4 replaces
+    # this whole block with GoalTutor (which IS a TurnRunner).
+    system_prompt = _system_prompt(str(goal.id), str(milestone.id))
+
+    from collections.abc import AsyncIterator
+
+    from berry.core.agent.events import AgentEvent
+    from berry.core.agent.session import AgentSession as AgentSessionType
+
+    class _BoundPromptRunner:
+        async def run_turn(
+            self,
+            agent_session: AgentSessionType,
+            user_text: str,
+        ) -> AsyncIterator[AgentEvent]:
+            async for ev in runtime.run_turn(
+                agent_session, user_text, system_prompt=system_prompt
+            ):
+                yield ev
+
     try:
-        await run_repl(
-            runtime,
-            agent_session,
-            system_prompt=_system_prompt(str(goal.id), str(milestone.id)),
-        )
+        await run_repl(_BoundPromptRunner(), agent_session)
     finally:
         await engine.dispose()
 
