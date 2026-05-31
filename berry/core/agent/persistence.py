@@ -1,66 +1,82 @@
-"""AgentSession <-> DB conversion.
+"""AgentSession <-> filesystem conversion.
 
-Design:
-- Incremental persistence: each push_message → one INSERT
-- Read-only `load`: never mutates the DB
-- Caller-explicit save: no dirty tracking, no implicit flush
-
-Round 1 only exposes the bare minimum used by Round 3 and beyond.
+Old version went through DB (MessageRepo / SessionRepo); Stage 1 switches to
+SessionStore (jsonl files).
 """
 
 from __future__ import annotations
 
+from datetime import datetime
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession as DbSession
-
 from berry.core.agent.session import AgentSession
-from berry.core.db.models import Message
-from berry.core.db.repos.message_repo import MessageRepo
-from berry.core.db.repos.session_repo import SessionRepo
+from berry.core.agent.session_store import SessionStore
 from berry.core.llm.types import LlmMessage
 from berry.domain.enums import Channel, SessionStatus
 
 
-async def load_agent_session(
-    session_id: UUID,
-    db: DbSession,
+def load_agent_session(
+    store: SessionStore,
 ) -> AgentSession | None:
-    """Fetch sessions row + all messages rows; reassemble AgentSession.
+    """Reconstruct AgentSession from a SessionStore.
 
-    Returns None if the session does not exist.
+    - Read meta.json
+    - Load all messages.jsonl (including rotated)
+    - Assemble into AgentSession instance
+
+    No meta.json -> return None.
     """
-    session_row = await SessionRepo(db).get_by_id(session_id)
-    if session_row is None:
+    meta = store.read_meta()
+    if meta is None:
         return None
 
-    message_rows = await MessageRepo(db).list_by_session(session_id)
-    messages = [_message_row_to_llm(row) for row in message_rows]
+    raw_messages = store.load_all_messages()
+    messages = [_envelope_to_llm_message(env) for env in raw_messages]
 
+    # AgentSession.id is currently typed as UUID. The file session_id
+    # (e.g. "20260604T152300-a3d2") is not a real UUID, so we derive a
+    # stable UUID via uuid5. Stage 2 will widen AgentSession.id to str.
     return AgentSession(
-        id=session_row.id,
-        user_id=session_row.user_id,
-        channel=Channel(session_row.channel),
-        chat_id=session_row.channel_chat_id,
-        status=SessionStatus(session_row.status),
-        title=session_row.title,
+        id=_session_id_to_uuid(meta.id),
+        user_id=UUID(meta.user_id),
+        channel=Channel(meta.channel),
+        chat_id=None,
+        status=SessionStatus(meta.status),
+        title=meta.title,
         messages=messages,
-        created_at=session_row.created_at,
-        updated_at=session_row.updated_at,
+        created_at=datetime.fromisoformat(meta.started_at),
+        updated_at=datetime.fromisoformat(meta.ended_at or meta.started_at),
     )
 
 
-async def save_message(
-    session_id: UUID,
+def save_message(
+    store: SessionStore,
     message: LlmMessage,
-    db: DbSession,
-) -> UUID:
-    """Persist one LlmMessage as a row in `messages`. Returns the new row id."""
-    row = await MessageRepo(db).append(session_id, message)
-    return row.id
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Append one LlmMessage to messages.jsonl."""
+    store.append_message(message, metadata=metadata)
 
 
-def _message_row_to_llm(row: Message) -> LlmMessage:
-    """DB row → LlmMessage. content jsonb is validated against the discriminated
-    union, so unknown block types raise immediately rather than silently passing."""
-    return LlmMessage.model_validate({"role": row.role, "content": row.content})
+# ─── helpers ────────────────────────────────────────────
+
+
+def _envelope_to_llm_message(env: dict[str, Any]) -> LlmMessage:
+    """messages.jsonl one line -> LlmMessage (validated by pydantic).
+
+    Unknown content block types raise ValidationError.
+    """
+    return LlmMessage.model_validate(
+        {"role": env["role"], "content": env["content"]}
+    )
+
+
+def _session_id_to_uuid(s: str) -> UUID:
+    """File session_id string -> derived stable UUID.
+
+    Used because AgentSession.id is typed as UUID. Stage 2 will widen
+    that type and remove this stub.
+    """
+    from uuid import NAMESPACE_OID, uuid5
+    return uuid5(NAMESPACE_OID, s)

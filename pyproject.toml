@@ -232,3 +232,35 @@ type = "forbidden"
 source_modules = ["berry.assistants.learning"]
 forbidden_modules = []   # extend as new assistants ship
 
+# Rule 12: protocol does not depend on any berry internal except core.agent.events
+# (events.py is a re-export bridge - this exception is intentional)
+[[tool.importlinter.contracts]]
+name = "protocol does not depend on berry internals (except core.agent.events)"
+type = "forbidden"
+source_modules = ["berry.protocol"]
+forbidden_modules = [
+    "berry.channels",
+    "berry.gateway",
+    "berry.entrypoints",
+    "berry.assistants",
+    "berry.observability",
+    "berry.security",
+    "berry.core.db",
+    "berry.core.tools",
+    "berry.core.llm",
+    "berry.core.project",
+    "berry.core.tasks",
+    "berry.core.skills",
+    "berry.core.sandbox",
+    "berry.core.rag",
+    "berry.core.agent.runtime",
+    "berry.core.agent.session",
+    "berry.core.agent.session_store",
+    "berry.core.agent.persistence",
+    "berry.core.agent.approval",
+    "berry.core.agent.tool_registry",
+    "berry.core.agent.stream_accumulator",
+    "berry.core.agent.turn_runner",
+]
+# 注:berry.core.agent.events 故意不在 forbidden 列表 — protocol/events.py 需要它
+

@@ -33,7 +33,6 @@ from berry.core.agent.approval import (
     ApprovalDecision,
     ApprovalPolicy,
 )
-from berry.core.agent.persistence import save_message
 from berry.core.agent.session import AgentSession
 from berry.core.agent.stream_accumulator import StreamAccumulator
 from berry.core.agent.tool_registry import ToolRegistry
@@ -104,9 +103,8 @@ class ConversationRuntime:
         system_prompt: str,
         db: AsyncSession,
     ) -> AsyncIterator[agent_events.AgentEvent]:
-        # 1. Persist + push user message
-        user_msg = session.push_user_text(user_text)
-        await save_message(session.id, user_msg, db)
+        # 1. Push user message (file persistence is owned by the caller via SessionStore)
+        session.push_user_text(user_text)
 
         yield agent_events.TurnStart(session_id=session.id)
 
@@ -140,11 +138,17 @@ class ConversationRuntime:
 
             response = accumulator.build_response()
 
-            # 4. Persist: llm_call_logs + assistant message
-            await log_repo.append(session.id, request, response)
+            # 4. Persist: llm_call_logs + push assistant message
+            await log_repo.append(
+                user_id=session.user_id,
+                project_id=None,                       # Stage 1 不传 project,Stage 2 GoalTutor 注入
+                session_id=str(session.id),  # stub: UUID str; Stage 2 uses file session_id
+                model=self._model_id,
+                request=request.model_dump(),
+                response=response.model_dump(),
+            )
             assistant_msg = LlmMessage(role="assistant", content=response.content)
             session.push_message(assistant_msg)
-            await save_message(session.id, assistant_msg, db)
 
             # 5. Did the LLM ask to call tools?
             tool_uses = [
@@ -176,7 +180,6 @@ class ConversationRuntime:
             #    (Anthropic convention: tool_result blocks live in user role).
             tool_msg = LlmMessage(role="user", content=list(tool_results))
             session.push_message(tool_msg)
-            await save_message(session.id, tool_msg, db)
 
             # Loop: re-call the LLM with the new tool_result context.
 
