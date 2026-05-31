@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,4 +46,29 @@ class Settings(BaseSettings):
         return self.database_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
 
-settings = Settings()  # type: ignore[call-arg]
+class FeishuSettings(BaseSettings):
+    """飞书 channel 凭证, Stage 4 接入, 本 stage 只占位."""
+
+    app_id: str = Field(default="", description="飞书 app id, 环境变量 FEISHU_APP_ID")
+    app_secret: SecretStr = SecretStr("")
+    verification_token: SecretStr = SecretStr("")
+    encrypt_key: SecretStr | None = None
+    domain: str = "https://open.feishu.cn"
+    bot_name: str = "berry"
+    allowed_open_ids: list[str] = Field(default_factory=list)
+
+    @property
+    def enabled(self) -> bool:
+        """凭证齐全时才视为启用。"""
+        return bool(self.app_id and self.app_secret.get_secret_value())
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        env_prefix="FEISHU_",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+
+settings = Settings()
