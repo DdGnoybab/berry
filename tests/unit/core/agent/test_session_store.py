@@ -225,3 +225,57 @@ def test_load_skips_blank_lines(tmp_path: Path) -> None:
     )
     loaded = store.load_all_messages()
     assert len(loaded) == 2
+
+
+def test_append_message_handles_surrogate_halves(tmp_path: Path) -> None:
+    """Defensive: SSE chunk splits a 4-byte emoji into surrogate halves leaking
+    into the str. Ensure we never lose a turn over an encoding edge case.
+    """
+    store = SessionStore(tmp_path / "sess")
+    store.create(
+        session_id=generate_session_id(),
+        user_id=uuid4(),
+        project_id=uuid4(),
+        channel="cli",
+    )
+    # Construct text containing a lone high surrogate
+    bad_text = "hello\udc00world"
+    msg = LlmMessage(role="assistant", content=[TextBlock(text=bad_text)])
+
+    # Should not raise
+    store.append_message(msg)
+
+    # Should be readable back
+    loaded = store.load_all_messages()
+    assert len(loaded) == 1
+    assert loaded[0]["role"] == "assistant"
+    # Surrogate replaced; content still contains "hello" and "world"
+    assert "hello" in loaded[0]["content"][0]["text"]
+    assert "world" in loaded[0]["content"][0]["text"]
+
+
+def test_stream_accumulator_strips_surrogates_from_text_delta() -> None:
+    """The hot fix: lone surrogates from upstream SSE must be stripped at
+    StreamAccumulator entry, before they pollute in-memory message history."""
+    from berry.core.agent.stream_accumulator import StreamAccumulator
+    from berry.core.llm.enums import StopReason
+    from berry.core.llm.types import (
+        MessageStart,
+        MessageStop,
+    )
+    from berry.core.llm.types import (
+        TextDelta as LlmTextDelta,
+    )
+
+    acc = StreamAccumulator(model_id="test")
+    acc.feed(MessageStart(id="msg_x", model="test"))
+    acc.feed(LlmTextDelta(text="before\udce6after"))  # lone low surrogate
+    acc.feed(MessageStop(stop_reason=StopReason.END_TURN))
+
+    response = acc.build_response()
+    text = response.content[0].text  # type: ignore[union-attr]
+    # surrogate replaced; surrounding chars survive
+    assert "before" in text
+    assert "after" in text
+    # encoding to UTF-8 must succeed (the original would have raised)
+    text.encode("utf-8")

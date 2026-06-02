@@ -31,10 +31,11 @@ def test_fake_tool_satisfies_tool_protocol() -> None:
 def test_tool_context_requires_session_and_user() -> None:
     """ToolContext must have session_id and user_id."""
     ctx = ToolContext(
-        session_id=uuid4(),
+        session_id="test-session-id",
         user_id=uuid4(),
         db=None,
         data_root=Path("/tmp/berry_test"),
+        cwd=Path("/tmp/berry_test"),
     )
     assert ctx.goal_id is None
     assert ctx.data_root == Path("/tmp/berry_test")
@@ -47,4 +48,5 @@ def test_tool_context_rejects_missing_session_id() -> None:
             user_id=uuid4(),
             db=None,
             data_root=Path("/tmp/berry_test"),
+            cwd=Path("/tmp/berry_test"),
         )

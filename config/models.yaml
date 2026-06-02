@@ -23,6 +23,8 @@ models:
 
   # ─── DeepSeek 通过 /anthropic 端点暴露 Anthropic 兼容协议 ───
   # 同一个 key,不同 base_url + 不同 api 字段 = 不同协议
+  # 注意:DeepSeek 的 /anthropic 端点 IGNORE cache_control 标记,
+  # 想验证 prompt cache 必须切到 anthropic-claude(下面那条)。
   - id: deepseek-anthropic
     kind: text
     api: anthropic-messages
@@ -39,10 +41,30 @@ models:
       # 导致 StreamAccumulator 解析半截 JSON 失败。
       max_tokens: 8192
 
+  # ─── Anthropic 官方端点(支持 prompt cache)───
+  # 把 aliases.main 切到这里就能用 cache_control: ephemeral。
+  # 模型名以 Anthropic 实际公开的 ID 为准(如 claude-opus-4-5-20251111 等),
+  # 切之前去 https://docs.anthropic.com/en/docs/about-claude/models 核对当前可用 id。
+  - id: anthropic-claude
+    kind: text
+    api: anthropic-messages
+    provider: anthropic
+    base_url: https://api.anthropic.com
+    model_name: claude-sonnet-4-5
+    api_key: ${ANTHROPIC_API_KEY}
+    timeout_s: 120
+    capabilities: [tool_use, prompt_cache]
+    defaults:
+      max_tokens: 8192
+
 # 别名:让业务代码用业务名,不写死具体 model_id
 aliases:
   classify: deepseek-chat
-  main: deepseek-anthropic       # 默认走 Anthropic 协议,验证抽象
+  # 默认走 DeepSeek 的 /anthropic 端点(便宜、Anthropic 协议)。
+  # prompt cache 不在这条路径上工作:DeepSeek /anthropic 端点 ignore cache_control,
+  # 也不返回 cache_read_input_tokens / cache_creation_input_tokens 字段。
+  # 等切到 anthropic-claude(真 Anthropic key + 端点)时 cache 才会生效。
+  main: deepseek-anthropic
 
 # Fallback 链(MVP 解析但不生效,V1 实装)
 fallback: {}

@@ -34,11 +34,8 @@ def load_agent_session(
     raw_messages = store.load_all_messages()
     messages = [_envelope_to_llm_message(env) for env in raw_messages]
 
-    # AgentSession.id is currently typed as UUID. The file session_id
-    # (e.g. "20260604T152300-a3d2") is not a real UUID, so we derive a
-    # stable UUID via uuid5. Stage 2 will widen AgentSession.id to str.
     return AgentSession(
-        id=_session_id_to_uuid(meta.id),
+        id=meta.id,  # already a string
         user_id=UUID(meta.user_id),
         channel=Channel(meta.channel),
         chat_id=None,
@@ -70,13 +67,3 @@ def _envelope_to_llm_message(env: dict[str, Any]) -> LlmMessage:
     return LlmMessage.model_validate(
         {"role": env["role"], "content": env["content"]}
     )
-
-
-def _session_id_to_uuid(s: str) -> UUID:
-    """File session_id string -> derived stable UUID.
-
-    Used because AgentSession.id is typed as UUID. Stage 2 will widen
-    that type and remove this stub.
-    """
-    from uuid import NAMESPACE_OID, uuid5
-    return uuid5(NAMESPACE_OID, s)

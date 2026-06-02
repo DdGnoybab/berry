@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from berry.core.db.models import LlmCallLog
+from berry.utils.unicode import strip_surrogates_deep as _strip_surrogates
 
 
 class LlmLogRepo:
@@ -30,9 +31,9 @@ class LlmLogRepo:
             project_id=project_id,
             session_id=session_id,
             model=model,
-            request=request,
-            response=response,
-            metadata_=metadata or {},
+            request=_strip_surrogates(request),
+            response=_strip_surrogates(response),
+            metadata_=_strip_surrogates(metadata or {}),
         )
         self._db.add(row)
         await self._db.commit()

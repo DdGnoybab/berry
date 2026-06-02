@@ -68,10 +68,11 @@ async def test_registry_get_then_execute_roundtrip() -> None:
     reg = ToolRegistry([_make_tool("echo")])
     tool = reg.get("echo")
     ctx = ToolContext(
-        session_id=uuid4(),
+        session_id="test-session-id",
         user_id=uuid4(),
         db=None,
         data_root=Path("/tmp/berry_test"),
+        cwd=Path("/tmp/berry_test"),
     )
     result = await tool.execute({"text": "hi"}, ctx)
     assert result == "hi"

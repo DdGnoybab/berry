@@ -20,6 +20,7 @@ from anthropic import AsyncAnthropic
 
 from berry.core.llm.config import ModelEntry
 from berry.core.llm.enums import KnownApi, StopReason
+from berry.utils.unicode import strip_surrogates_deep as _strip_surrogates_deep
 from berry.core.llm.errors import (
     LlmAuthError,
     LlmInvalidRequestError,
@@ -133,9 +134,11 @@ class AnthropicMessagesAdapter:
             "messages": self._to_anthropic_messages(req.messages),
         }
 
-        # system 是顶层字段(不进 messages)
+        # system 是顶层字段(不进 messages)。如果包含静态/动态分界 marker,
+        # 切成两个 content block 并给静态前缀打 cache_control,激活 Anthropic
+        # prompt cache。详见 docs/superpowers/specs/2026-05-31-learning-system-prompt-design.md § 7。
         if req.system:
-            body["system"] = req.system
+            body["system"] = _system_to_blocks(req.system)
 
         # 默认参数 < 请求参数 优先级
         max_tokens = req.max_tokens or entry.defaults.max_tokens
@@ -160,7 +163,14 @@ class AnthropicMessagesAdapter:
         if tools:
             body["tools"] = tools
 
-        return body
+        # Final defense at the SDK boundary: scrub lone surrogates from the
+        # whole body. Earlier scrubs (StreamAccumulator, runtime tool-result
+        # block, LlmLogRepo) cover the obvious channels but stray surrogates
+        # can still hide in places like SDK message id strings or malformed
+        # web_fetch HTML that bypassed earlier paths. Encoding the JSON for
+        # an HTTP body is the moment a surrogate would crash the request, so
+        # we sanitize once more here regardless of what came before.
+        return _strip_surrogates_deep(body)
 
     # ─── Anthropic → 中立 ───
     @staticmethod
@@ -310,3 +320,42 @@ class AnthropicMessagesAdapter:
                 raise mapped from exc
             yield StreamError(message=str(mapped), error_type=type(mapped).__name__)
             raise LlmStreamError(str(mapped)) from exc
+
+
+# ─── helpers ───────────────────────────────────────────────────────────────
+
+# Defined locally instead of importing from learning prompts to keep core/llm
+# free of business-layer dependencies (ADR-0003: assistants/* depends on core,
+# never the other way). The marker string is the contract; whoever writes
+# this string into a system prompt opts into the cache split.
+_SYSTEM_PROMPT_DYNAMIC_BOUNDARY = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"
+
+
+def _system_to_blocks(system: str) -> str | list[dict[str, Any]]:
+    """Convert a system-prompt string into a list of content blocks if it
+    contains the static/dynamic boundary marker, attaching cache_control to
+    the static prefix so Anthropic prompt cache can hit it.
+
+    No marker → return the original string (no cache wiring, no behavior
+    change for callers that don't go through the learning prompt builder).
+
+    The boundary line itself is dropped from the output — it's a developer
+    marker, not content the LLM should see.
+    """
+    if _SYSTEM_PROMPT_DYNAMIC_BOUNDARY not in system:
+        return system
+
+    static_part, _, dynamic_part = system.partition(_SYSTEM_PROMPT_DYNAMIC_BOUNDARY)
+    static_text = static_part.strip()
+    dynamic_text = dynamic_part.strip()
+
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": static_text,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+    if dynamic_text:
+        blocks.append({"type": "text", "text": dynamic_text})
+    return blocks

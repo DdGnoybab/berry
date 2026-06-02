@@ -23,7 +23,7 @@ class AgentSession(BaseModel):
     """Business-layer agent session: identity + ordered message history."""
 
     # Identity (loaded from sessions row)
-    id: UUID
+    id: str  # filesystem session_id (e.g. "20260604T152300-a3d2"); user_id remains UUID
     user_id: UUID
     channel: Channel
     chat_id: str | None = None

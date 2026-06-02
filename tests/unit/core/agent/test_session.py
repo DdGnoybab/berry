@@ -13,7 +13,7 @@ from berry.domain.enums import Channel, SessionStatus
 def _make_session(**overrides) -> AgentSession:
     now = datetime.now(UTC)
     defaults = {
-        "id": uuid4(),
+        "id": "test-session-id",
         "user_id": uuid4(),
         "channel": Channel.FEISHU,
         "chat_id": "chat_test",

@@ -206,12 +206,19 @@ class SessionStore:
             "created_at": datetime.now(UTC).isoformat(),
             "metadata": metadata or {},
         }
-        line = json.dumps(envelope, ensure_ascii=False) + "\n"
+        # Sanitize surrogate halves (e.g. when an upstream SSE chunk splits a
+        # multi-byte emoji and the SDK leaves lone surrogates in the str). UTF-8
+        # encoding rejects them with surrogates_not_allowed; replace them so
+        # we never lose a turn over an encoding edge case.
+        line_bytes = (json.dumps(envelope, ensure_ascii=False) + "\n").encode(
+            "utf-8", errors="replace"
+        )
+        line = line_bytes.decode("utf-8")
 
         # Check whether rotation is needed before writing
         if self.messages_path.exists():
             size = self.messages_path.stat().st_size
-            if size + len(line.encode("utf-8")) > ROTATE_AFTER_BYTES:
+            if size + len(line_bytes) > ROTATE_AFTER_BYTES:
                 self._rotate()
 
         # Append (mkdir in case this is called without create())

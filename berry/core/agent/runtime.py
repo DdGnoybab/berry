@@ -19,6 +19,7 @@ graph framework. ~300 lines, single file, every decision visible.
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
@@ -48,6 +49,7 @@ from berry.core.llm.types import (
     ToolUseBlock,
 )
 from berry.core.tools.base import ToolContext
+from berry.utils.unicode import strip_surrogates
 
 
 class DbSessionFactory(Protocol):
@@ -115,6 +117,7 @@ class ConversationRuntime:
             goal_id=None,  # Round 4: GoalTutor will populate this
             db=db,
             data_root=_data_root_default(),
+            cwd=_cwd_default(),
         )
 
         for _ in range(self._max_inner_loops):
@@ -142,7 +145,7 @@ class ConversationRuntime:
             await log_repo.append(
                 user_id=session.user_id,
                 project_id=None,                       # Stage 1 不传 project,Stage 2 GoalTutor 注入
-                session_id=str(session.id),  # stub: UUID str; Stage 2 uses file session_id
+                session_id=session.id,  # already a string
                 model=self._model_id,
                 request=request.model_dump(),
                 response=response.model_dump(),
@@ -231,13 +234,17 @@ class ConversationRuntime:
         except Exception as exc:
             return ToolResultBlock(
                 tool_use_id=tool_use.id,
-                output=f"tool error ({type(exc).__name__}): {exc}",
+                output=strip_surrogates(f"tool error ({type(exc).__name__}): {exc}"),
                 is_error=True,
             )
 
+        # Tool outputs become ToolResultBlocks that are pushed back into
+        # session.messages for the next LLM turn. Strip lone surrogates here
+        # (they can leak in via web_fetch on UTF-8-broken pages) so the next
+        # request-body encoding doesn't crash with surrogates_not_allowed.
         return ToolResultBlock(
             tool_use_id=tool_use.id,
-            output=output,
+            output=strip_surrogates(output),
             is_error=False,
         )
 
@@ -260,6 +267,20 @@ def _stream_event_to_agent_event(
         # Channels that need full args should listen for ToolResult instead.
         return agent_events.ToolCallStart(id=ev.id, name=ev.name, args={})
     return None
+
+
+def _cwd_default() -> Path:
+    """LLM workspace root for file tools.
+
+    Defaults to the process's current working directory (i.e. wherever the
+    user started ``uv run python -m berry.entrypoints.cli``). Override with
+    ``BERRY_CWD`` env var — useful for tests and for running berry from one
+    directory while pointing the LLM at another.
+    """
+    override = os.environ.get("BERRY_CWD")
+    if override:
+        return Path(override).resolve()
+    return Path.cwd().resolve()
 
 
 def _data_root_default() -> Path:

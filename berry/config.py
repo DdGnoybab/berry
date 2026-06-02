@@ -1,7 +1,19 @@
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Load .env at module import so any later `Settings()` call sees the values,
+# regardless of which entrypoint imported berry.config first or what the
+# user's current working directory is.
+#
+# We compute the path relative to *this* file: berry/config.py lives in
+# <repo>/berry/, so `parent.parent` = <repo>/. The user can start a REPL
+# from anywhere (e.g. /tmp/study-redis for dogfood) and still get the
+# right .env.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_REPO_ROOT / ".env")
 
 
 class Settings(BaseSettings):
@@ -18,10 +30,26 @@ class Settings(BaseSettings):
     )
     log_level: str = "INFO"
     data_root: Path = Field(
-        default=Path("data"),
+        default_factory=lambda: _REPO_ROOT / "data",
         description=(
-            "本地数据目录的根。Workspace 工具(Round 3 起)会在这下面写 .md。"
+            "Berry 自家数据目录,默认 <repo_root>/data/(绝对路径,不会泄漏到用户 cwd)。"
             "Goal 的 workspace_path 都是相对此目录的相对路径。"
+            "学习场景下用户的 workspace 走 cwd,跟 data_root 无关。"
+        ),
+    )
+
+    language: str = Field(
+        default="zh-CN",
+        description=(
+            "Learning assistant 跟用户对话的默认语言。"
+            "渲染进 system prompt 的 # Runtime config 段,LLM 据此决定回答语言。"
+        ),
+    )
+    notes_dir: str = Field(
+        default="notes",
+        description=(
+            "Learning project 笔记目录,相对 cwd。"
+            "system prompt 段 7 (# Learning project context) 扫这里的 .md。"
         ),
     )
 

@@ -33,6 +33,7 @@ from berry.core.llm.types import (
     Usage,
     UsageEvent,
 )
+from berry.utils.unicode import strip_surrogates as _strip_surrogates
 
 
 class StreamAccumulator:
@@ -63,13 +64,20 @@ class StreamAccumulator:
         self._stream_error: StreamError | None = None
 
     def feed(self, event: StreamEvent) -> None:
-        """Consume one stream event."""
+        """Consume one stream event.
+
+        All inbound text is run through :func:`_strip_surrogates` so lone
+        surrogate halves (which leak in when an upstream SSE chunk splits a
+        multi-byte emoji) never propagate into in-memory message history.
+        Without this, the next turn's request body encoding would raise
+        UnicodeEncodeError and lose the entire turn.
+        """
         if isinstance(event, MessageStart):
             self._message_id = event.id
         elif isinstance(event, TextDelta):
-            self._text_buf.append(event.text)
+            self._text_buf.append(_strip_surrogates(event.text))
         elif isinstance(event, ThinkingDelta):
-            self._thinking_buf.append(event.text)
+            self._thinking_buf.append(_strip_surrogates(event.text))
         elif isinstance(event, ToolCallStart):
             self._tool_calls[event.id] = _ToolCallBuilder(id=event.id, name=event.name)
             self._tool_call_order.append(event.id)
@@ -78,7 +86,9 @@ class StreamAccumulator:
                 # Provider sent a delta for a tool we never saw start. Skip silently;
                 # a downstream `build_response()` will fail at JSON parse time anyway.
                 return
-            self._tool_calls[event.id].input_json.append(event.input_json_delta)
+            self._tool_calls[event.id].input_json.append(
+                _strip_surrogates(event.input_json_delta)
+            )
         elif isinstance(event, MessageStop):
             self._stop_reason = event.stop_reason
         elif isinstance(event, UsageEvent):

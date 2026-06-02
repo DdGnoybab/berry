@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from uuid import uuid4
-
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
@@ -19,7 +17,7 @@ from berry.core.agent.events import (
 
 
 def test_turn_start_serializes_with_type_field() -> None:
-    sid = uuid4()
+    sid = "20260604T152300-a3d2"
     ev = TurnStart(session_id=sid)
     dumped = ev.model_dump()
     assert dumped["type"] == "turn_start"

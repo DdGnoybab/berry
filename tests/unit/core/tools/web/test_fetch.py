@@ -56,10 +56,11 @@ def test_extract_title_handles_multiline_content() -> None:
 
 def _ctx() -> ToolContext:
     return ToolContext(
-        session_id=uuid4(),
+        session_id="test-session-id",
         user_id=uuid4(),
         db=None,
         data_root=Path("/tmp/berry_test"),
+        cwd=Path("/tmp/berry_test"),
     )
 
 

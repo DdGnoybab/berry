@@ -24,17 +24,24 @@ from berry.core.agent.events import (
 )
 
 
+def _safe(text: str) -> str:
+    """Strip lone surrogate halves so terminal write never raises
+    UnicodeEncodeError. Surrogates can leak in when an upstream SSE chunk
+    splits a multi-byte emoji at the wrong byte boundary."""
+    return text.encode("utf-8", errors="replace").decode("utf-8")
+
+
 def render(event: AgentEvent) -> None:
     """Print one event to stdout in the agreed CLI format."""
     if isinstance(event, TextDelta):
         # Token stream — no newline, flush so the user sees it live.
-        print(event.text, end="", flush=True)
+        print(_safe(event.text), end="", flush=True)
         return
 
     if isinstance(event, ToolCallStart):
         # New line first so it doesn't tail an in-progress text stream.
         args_repr = _compact_json(event.args)
-        print(f"\n[tool_call] {event.name}({args_repr})", flush=True)
+        print(_safe(f"\n[tool_call] {event.name}({args_repr})"), flush=True)
         return
 
     if isinstance(event, ApprovalAsked):
@@ -46,7 +53,7 @@ def render(event: AgentEvent) -> None:
         label = "[tool_result-error]" if event.is_error else "[tool_result]"
         # Truncate very long outputs so the terminal stays scannable.
         body = event.output if len(event.output) <= 500 else event.output[:497] + "..."
-        print(f"{label} {body}", flush=True)
+        print(_safe(f"{label} {body}"), flush=True)
         return
 
     if isinstance(event, TurnEnd):

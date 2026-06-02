@@ -8,7 +8,6 @@ can transparently forward LLM-layer events.
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
-from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -19,7 +18,7 @@ class TurnStart(BaseModel):
     """
 
     type: Literal["turn_start"] = "turn_start"
-    session_id: UUID
+    session_id: str
 
 
 class TextDelta(BaseModel):

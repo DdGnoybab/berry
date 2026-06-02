@@ -26,11 +26,12 @@ class ToolContext(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
 
-    session_id: UUID
+    session_id: str
     user_id: UUID
     goal_id: UUID | None = None      # learning domain only
     db: AsyncSession | None    # shared for the turn; pass None explicitly in tests
-    data_root: Path                  # = settings.data_root, used by workspace tools
+    data_root: Path                  # = settings.data_root, used by berry-internal data
+    cwd: Path                        # LLM workspace root; file tools enforce stay-within-cwd
 
 
 @runtime_checkable
