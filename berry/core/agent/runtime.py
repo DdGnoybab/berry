@@ -29,6 +29,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from berry.config import settings
 from berry.core.agent import events as agent_events
+from berry.core.agent.compaction import (
+    CompactionConfig,
+    compact_session,
+    estimate_session_tokens,
+)
 from berry.core.agent.approval import (
     ApprovalChannel,
     ApprovalDecision,
@@ -78,6 +83,7 @@ class ConversationRuntime:
         db_session_factory: DbSessionFactory,
         model_id: str = "main",
         max_inner_loops: int = 20,
+        auto_compact_threshold: int = 100_000,
     ) -> None:
         self._gateway = llm_gateway
         self._tools = tool_registry
@@ -86,6 +92,7 @@ class ConversationRuntime:
         self._db_factory = db_session_factory
         self._model_id = model_id
         self._max_inner_loops = max_inner_loops
+        self._auto_compact_threshold = auto_compact_threshold
 
     async def run_turn(
         self,
@@ -152,6 +159,9 @@ class ConversationRuntime:
             )
             assistant_msg = LlmMessage(role="assistant", content=response.content)
             session.push_message(assistant_msg)
+
+            # 4b. Auto compaction check — prevent unbounded session growth
+            self._maybe_auto_compact(session)
 
             # 5. Did the LLM ask to call tools?
             tool_uses = [
@@ -247,6 +257,22 @@ class ConversationRuntime:
             output=strip_surrogates(output),
             is_error=False,
         )
+
+    def _maybe_auto_compact(self, session: AgentSession) -> None:
+        """Check if session exceeds token threshold and compact if needed."""
+        estimated = estimate_session_tokens(list(session.messages))
+        if estimated < self._auto_compact_threshold:
+            return
+
+        result = compact_session(
+            list(session.messages),
+            CompactionConfig(max_estimated_tokens=0),
+        )
+
+        if result.removed_message_count == 0:
+            return
+
+        session.messages = result.compacted_messages
 
 
 # ─── helpers ────────────────────────────────────────────────────────────
