@@ -92,11 +92,6 @@ async def turn_send(
             f"session {params.session_id} not found in any of your projects",
         )
 
-    if target_project.domain != "learning":
-        raise ProtocolError(
-            ErrorCode.INTERNAL_ERROR,
-            f"domain {target_project.domain!r} not supported in Stage 2",
-        )
 
     store = SessionStore(target_session_dir)
     agent_session = load_agent_session(store)

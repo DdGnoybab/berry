@@ -1,15 +1,13 @@
-"""CLI entrypoint - drives core via method registry, mirrors web/feishu.
+"""CLI entrypoint — drives ConversationRuntime directly.
 
 Startup sequence:
   1. Load .env / config
-  2. Build DB engine + sessionmaker (singleton from core/db/session.py)
-  3. Seed default user (handle="default")
-  4. Get user's "cli-demo" project, create one if absent
-  5. Build GoalTutor + configure turn handler (inject runner)
-  6. Create a new session under that project (via registry)
-  7. REPL: each input -> call_stream("turn.send") -> render
-
-Stage 2: wires GoalTutor as TurnRunner via turn.configure_runner().
+  2. Build DB engine + sessionmaker
+  3. Seed default user
+  4. Get user's project, create one if absent
+  5. Build ConversationRuntime (generic — behavior driven by system prompt + skills)
+  6. Create a new session
+  7. REPL: each input → run_turn → render
 """
 
 from __future__ import annotations
@@ -22,12 +20,12 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from berry.assistants.learning.tutor import GoalTutor
 from berry.channels.cli.approval import CliApprovalChannel
 from berry.channels.cli.renderer import render
 from berry.config import settings
 from berry.core.agent.approval import WhitelistPolicy
 from berry.core.agent.events import AgentEvent
+from berry.core.agent.prompt import build_default_system_prompt
 from berry.core.agent.runtime import ConversationRuntime
 from berry.core.agent.tool_registry import ToolRegistry
 from berry.core.db.repos.project_repo import ProjectRepo
@@ -40,6 +38,14 @@ from berry.core.llm.enums import KnownApi
 from berry.core.llm.gateway import ModelGateway
 from berry.core.llm.registry import ModelRegistry
 from berry.core.project.service import ProjectService
+from berry.core.tools.core import (
+    BashTool,
+    GlobSearchTool,
+    GrepSearchTool,
+    SkillTool,
+    TodoReadTool,
+    TodoWriteTool,
+)
 from berry.core.tools.files import EditFileTool, ReadFileTool, WriteFileTool
 from berry.core.tools.web.fetch import WebFetchTool
 from berry.core.tools.web.registry import SearchProviderRegistry
@@ -57,8 +63,12 @@ DEMO_PROJECT_NAME = "cli-demo"
 # ─── Runner construction ────────────────────────────────────
 
 
-def _build_tutor() -> GoalTutor:
-    """Construct GoalTutor + ConversationRuntime from config files."""
+def _build_runtime() -> tuple[ConversationRuntime, str]:
+    """Construct ConversationRuntime + system prompt from config files.
+
+    Returns (runtime, system_prompt) — the CLI passes system_prompt to run_turn
+    so ConversationRuntime stays business-agnostic.
+    """
     repo_root = Path(__file__).resolve().parent.parent.parent
     models_path = repo_root / "config" / "models.yaml"
     model_registry = ModelRegistry(models_path)
@@ -75,16 +85,20 @@ def _build_tutor() -> GoalTutor:
 
     tool_registry = ToolRegistry(
         [
-            WebSearchTool(search_registry),
-            WebFetchTool(),
+            BashTool(),
             ReadFileTool(),
             WriteFileTool(),
             EditFileTool(),
+            GrepSearchTool(),
+            GlobSearchTool(),
+            WebSearchTool(search_registry),
+            WebFetchTool(),
+            TodoWriteTool(),
+            TodoReadTool(),
+            SkillTool(),
         ]
     )
-    # write_file / edit_file change persistent state — gate them behind
-    # ApprovalChannel (CLI: Y/n prompt). read_file / web_* are auto-allowed.
-    policy = WhitelistPolicy({"write_file", "edit_file"})
+    policy = WhitelistPolicy({"write_file", "edit_file", "bash"})
     approval_channel = CliApprovalChannel()
 
     runtime = ConversationRuntime(
@@ -95,13 +109,50 @@ def _build_tutor() -> GoalTutor:
         db_session_factory=async_session_factory,
         model_id="main",
     )
-    return GoalTutor.from_settings(
-        runtime=runtime,
-        settings={
-            "language": settings.language,
-            "notes_dir": settings.notes_dir,
-        },
-    )
+
+    system_prompt = build_default_system_prompt(cwd=Path.cwd())
+
+    return runtime, system_prompt
+
+
+# ─── Thin TurnRunner adapter ─────────────────────────────────────────────────
+
+
+class _CliTurnRunner:
+    """Wraps ConversationRuntime to satisfy TurnRunner Protocol.
+
+    Holds the system_prompt and passes it through on each turn.
+    """
+
+    def __init__(self, runtime: ConversationRuntime, system_prompt: str) -> None:
+        self._runtime = runtime
+        self._system_prompt = system_prompt
+
+    def run_turn(
+        self,
+        session: Any,
+        user_text: str,
+    ) -> AsyncIterator[AgentEvent]:
+        return self._runtime.run_turn(
+            session=session,
+            user_text=user_text,
+            system_prompt=self._system_prompt,
+        )
+
+
+def _build_skill_invoke_prompt(skill_name: str, args: str = "") -> str:
+    """Build a user prompt that instructs the LLM to invoke a skill.
+
+    Mirrors claw-code's approach: the CLI transforms /skill commands into
+    prompts that tell the LLM to use the skill tool.
+    """
+    parts = [f"Use the `skill` tool to load the '{skill_name}' skill and follow its instructions."]
+    if args:
+        parts.append(f"Context from user: {args}")
+    return " ".join(parts)
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
 
 async def _seed_user() -> UUID:
@@ -114,7 +165,6 @@ async def _seed_user() -> UUID:
 
 
 async def _ensure_demo_project(user_id: UUID) -> UUID:
-    """Find or create the cli-demo project."""
     async with async_session_factory() as db:
         repo = ProjectRepo(db)
         existing = await repo.get_by_user_and_name(user_id, DEMO_PROJECT_NAME)
@@ -129,7 +179,7 @@ async def _ensure_demo_project(user_id: UUID) -> UUID:
             user_id=user_id,
             name=DEMO_PROJECT_NAME,
             title="CLI Demo",
-            domain="learning",
+            domain="general",
             workspace_path=ws_path,
         )
         svc.init_workspace(project)
@@ -192,8 +242,9 @@ async def _run() -> None:
     project_id = await _ensure_demo_project(user_id)
     print(f"[demo] project_id  = {project_id}")
 
-    # Wire GoalTutor into turn handler before starting REPL
-    configure_runner(_build_tutor())
+    runtime, system_prompt = _build_runtime()
+    runner = _CliTurnRunner(runtime, system_prompt)
+    configure_runner(runner)  # type: ignore[arg-type]
 
     registry = MethodRegistry()
     register_core(registry)
@@ -216,6 +267,11 @@ async def _run() -> None:
             print("bye")
             return
 
+        # Slash-command: /learn → invoke learning skill
+        if text.startswith("/learn"):
+            skill_args = text[len("/learn"):].strip()
+            text = _build_skill_invoke_prompt("learning", skill_args)
+
         try:
             async for ev in _run_turn(
                 registry, user_id, project_id, session_id, text
@@ -228,11 +284,7 @@ async def _run() -> None:
 
 
 def main() -> None:
-    """sync entry point.
-
-    .env loading is handled at berry.config import time (see berry/config.py),
-    so we don't need to call load_dotenv() here.
-    """
+    """Sync entry point."""
     asyncio.run(_async_main())
 
 

@@ -14,7 +14,7 @@ Rationale for splitting on boundary marker:
 
 from __future__ import annotations
 
-from berry.assistants.learning.prompts import SYSTEM_PROMPT_DYNAMIC_BOUNDARY
+SYSTEM_PROMPT_DYNAMIC_BOUNDARY = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"
 from berry.core.llm.adapters.anthropic_messages import AnthropicMessagesAdapter
 from berry.core.llm.config import ModelDefaults, ModelEntry
 from berry.core.llm.enums import KnownApi, ModelKind
