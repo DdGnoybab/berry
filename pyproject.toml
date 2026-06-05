@@ -25,9 +25,9 @@ dependencies = [
     "openai>=1.50",
     "pyyaml>=6.0",
     "watchfiles>=0.24",
+    # ─── 飞书 channel ───
+    "lark-oapi>=1.4",
     # ─── 后续按需要打开 ───
-    # 飞书(接入飞书时打开)
-    # "lark-oapi>=1.4",
     # Anthropic 协议(Batch 2 打开)
     # "anthropic>=0.40",
     # Agent 编排(接 LangGraph 时打开)
