@@ -284,14 +284,15 @@ def send_approval_card(
             msg=resp.msg,
         )
         return None
-    if resp.data is None or not resp.data.message_id:
+    msg_id: str | None = resp.data.message_id if resp.data else None
+    if not msg_id:
         logger.error(
             "feishu_send_approval_card_missing_message_id",
             chat_id=chat_id,
             reply_to_message_id=reply_to_message_id,
         )
         return None
-    return resp.data.message_id
+    return msg_id
 
 
 def update_card_by_message(

@@ -28,6 +28,7 @@ async def monitor_feishu_provider(
     state_dir: Path,
     dm_policy: policy_mod.DmPolicy,
     allowed_open_ids: list[str],
+    group_allow_from: list[str],
 ) -> None:
     """对每个 account 起一个 task 跑 WS。任一 task 抛出就让进程崩,由进程
     管理器重启。"""
@@ -48,6 +49,7 @@ async def monitor_feishu_provider(
                 state_dir=state_dir,
                 dm_policy=dm_policy,
                 allowed_open_ids=allowed_open_ids,
+                group_allow_from=group_allow_from,
             )
             for acct in accounts_list
         )

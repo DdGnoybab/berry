@@ -33,7 +33,6 @@ from berry.channels.feishu.card_ux_approval import (
 from berry.core.agent.approval_registry import get_approval_registry
 from berry.core.tools.base import ToolContext
 
-
 # ─── fake lark client ───────────────────────────────────────────────
 
 
@@ -70,11 +69,21 @@ class _FailCreateResp:
 class FakeMessage:
     def __init__(self) -> None:
         self.created: list[Any] = []
+        self.replied: list[Any] = []
         self.patched: list[Any] = []
+        # 在下次 create / reply 调用时返回失败响应。两条路径都受影响,
+        # 因为本期 approval card 默认走 reply(resolver 提供了
+        # trigger_message_id),DM/群聊都一样。
         self.fail_next_create = False
 
     def create(self, req: Any) -> Any:
         self.created.append(req)
+        if self.fail_next_create:
+            return _FailCreateResp()
+        return _CreateResp()
+
+    def reply(self, req: Any) -> Any:
+        self.replied.append(req)
         if self.fail_next_create:
             return _FailCreateResp()
         return _CreateResp()
@@ -130,7 +139,7 @@ async def test_ask_returns_false_when_no_resolver(fake_client: FakeClient) -> No
 @pytest.mark.asyncio
 async def test_ask_returns_false_when_chat_unknown(fake_client: FakeClient) -> None:
     channel = FeishuApprovalChannel(client=fake_client)  # type: ignore[arg-type]
-    channel.set_chat_resolver(lambda _sid: (None, None))
+    channel.set_chat_resolver(lambda _sid: (None, None, None))
     approved = await channel.ask("bash", {"command": "rm foo"}, _ctx())
     assert approved is False
     assert fake_client.message.created == []
@@ -142,7 +151,7 @@ async def test_ask_returns_false_when_send_fails(
 ) -> None:
     fake_client.message.fail_next_create = True
     channel = FeishuApprovalChannel(client=fake_client)  # type: ignore[arg-type]
-    channel.set_chat_resolver(lambda _sid: ("chat", "ou_user"))
+    channel.set_chat_resolver(lambda _sid: ("chat", "ou_user", "msg_trigger"))
     approved = await channel.ask("bash", {"command": "rm foo"}, _ctx())
     assert approved is False
     # Registry has no leaks (cleanup ran in finally)
@@ -155,7 +164,7 @@ async def test_ask_happy_path_resolves_via_card_action(
     fake_client: FakeClient,
 ) -> None:
     channel = FeishuApprovalChannel(client=fake_client)  # type: ignore[arg-type]
-    channel.set_chat_resolver(lambda _sid: ("chat_x", "ou_user"))
+    channel.set_chat_resolver(lambda _sid: ("chat_x", "ou_user", "msg_trigger"))
 
     async def _click_confirm() -> None:
         # let ask register + send first
@@ -185,7 +194,8 @@ async def test_ask_happy_path_resolves_via_card_action(
     await task
 
     assert approved is True
-    assert len(fake_client.message.created) == 1   # approval card
+    assert len(fake_client.message.replied) == 1   # approval card → reply(trigger)
+    assert len(fake_client.message.created) == 0   # 不再走 create
     assert len(fake_client.message.patched) == 1   # → resolved card
     # Registry leak check
     assert get_approval_registry()._pending == {}
@@ -195,7 +205,7 @@ async def test_ask_happy_path_resolves_via_card_action(
 @pytest.mark.asyncio
 async def test_ask_cancel_returns_false(fake_client: FakeClient) -> None:
     channel = FeishuApprovalChannel(client=fake_client)  # type: ignore[arg-type]
-    channel.set_chat_resolver(lambda _sid: ("chat_x", "ou_user"))
+    channel.set_chat_resolver(lambda _sid: ("chat_x", "ou_user", "msg_trigger"))
 
     async def _click_cancel() -> None:
         await asyncio.sleep(0.02)
@@ -235,13 +245,13 @@ async def test_ask_timeout_patches_card(
 ) -> None:
     monkeypatch.setattr(ach_mod, "APPROVAL_TIMEOUT_SECONDS", 0.05)
     channel = FeishuApprovalChannel(client=fake_client)  # type: ignore[arg-type]
-    channel.set_chat_resolver(lambda _sid: ("chat_x", "ou_user"))
+    channel.set_chat_resolver(lambda _sid: ("chat_x", "ou_user", "msg_trigger"))
 
     approved = await channel.ask(
         "bash", {"command": "rm foo"}, _ctx(), reason="r",
     )
     assert approved is False
-    assert len(fake_client.message.created) == 1
+    assert len(fake_client.message.replied) == 1
     # Timeout path patches the card to "timeout" state
     assert len(fake_client.message.patched) == 1
 
@@ -252,7 +262,7 @@ async def test_wrong_user_click_does_not_resolve(
 ) -> None:
     monkeypatch.setattr(ach_mod, "APPROVAL_TIMEOUT_SECONDS", 0.1)
     channel = FeishuApprovalChannel(client=fake_client)  # type: ignore[arg-type]
-    channel.set_chat_resolver(lambda _sid: ("chat_x", "ou_legit"))
+    channel.set_chat_resolver(lambda _sid: ("chat_x", "ou_legit", "msg_trigger"))
 
     async def _wrong_user() -> None:
         await asyncio.sleep(0.02)
@@ -284,8 +294,9 @@ async def test_wrong_user_click_does_not_resolve(
     await task
     # Wrong user does NOT resolve → eventually timeout → False
     assert approved is False
-    # Notice + approval card created (2 creates total; notice is text, card is interactive)
-    assert len(fake_client.message.created) == 2
+    # Approval card → reply(trigger);invalid notice 文本走 create(没 reply_to)
+    assert len(fake_client.message.replied) == 1
+    assert len(fake_client.message.created) == 1
     # Patch only happened from the timeout path
     assert len(fake_client.message.patched) == 1
 

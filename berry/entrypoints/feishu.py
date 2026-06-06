@@ -75,8 +75,12 @@ def _build_account(s: FeishuSettings) -> ResolvedFeishuAccount:
         verification_token=s.verification_token.get_secret_value() or None,
         bot_name=s.bot_name,
     )
-    # MVP 不去解 bot_open_id(那是给 mention gating 用的,DM 用不到)
-    return ResolvedFeishuAccount(account=acct, bot_open_id=None)
+    # bot_open_id 来自 .env;空时群聊整体禁用,DM 不受影响。
+    # 启动期不做 contact API 自动解析(后续按需 PR)。
+    return ResolvedFeishuAccount(
+        account=acct,
+        bot_open_id=s.bot_open_id or None,
+    )
 
 
 async def _async_main() -> None:
@@ -98,6 +102,26 @@ async def _async_main() -> None:
                 "FEISHU_DM_POLICY=allowlist 但 FEISHU_ALLOWED_OPEN_IDS 为空 "
                 "— 所有 DM 都会被拒绝。把你自己的 open_id 加进 .env,或者把 "
                 "FEISHU_DM_POLICY 改成 open(默认)。"
+            ),
+        )
+
+    # 群聊配置健全性提示 — 帮用户排查「群里 @ 没反应」类问题
+    if feishu_settings.group_allow_from and not feishu_settings.bot_open_id:
+        logger.warning(
+            "feishu_group_bot_open_id_missing",
+            note=(
+                "FEISHU_GROUP_ALLOW_FROM 已配置但 FEISHU_BOT_OPEN_ID 为空 — "
+                "群聊 @ bot 检测拿不到 bot 自身 ID,所有群聊消息会被拒。"
+                "请把 bot 的 open_id 填进 FEISHU_BOT_OPEN_ID。"
+            ),
+        )
+    if feishu_settings.bot_open_id and not feishu_settings.group_allow_from:
+        logger.info(
+            "feishu_group_allow_from_empty",
+            note=(
+                "FEISHU_BOT_OPEN_ID 已配但 FEISHU_GROUP_ALLOW_FROM 为空 — "
+                "群聊禁用,只 DM 工作。把目标群的 chat_id 加进 "
+                "FEISHU_GROUP_ALLOW_FROM 即可启用群聊。"
             ),
         )
 
@@ -131,6 +155,8 @@ async def _async_main() -> None:
         state_dir=str(state_dir),
         dm_policy=feishu_settings.dm_policy,
         allowlist_size=len(feishu_settings.allowed_open_ids),
+        bot_open_id_configured=bool(feishu_settings.bot_open_id),
+        group_allow_size=len(feishu_settings.group_allow_from),
         user_id=str(user_id),
     )
 
@@ -140,6 +166,7 @@ async def _async_main() -> None:
             state_dir=state_dir,
             dm_policy=feishu_settings.dm_policy,
             allowed_open_ids=list(feishu_settings.allowed_open_ids),
+            group_allow_from=list(feishu_settings.group_allow_from),
         )
     finally:
         await engine.dispose()
