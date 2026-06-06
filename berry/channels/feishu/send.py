@@ -9,14 +9,14 @@
 - `send_invalid_notice(client, chat_id, reason)` — 卡片校验失败时给用户
   发一段中文提示,对齐 openclaw `sendInvalidInteractionNotice`
 
-Card schema 用飞书最朴素的 div+markdown(主回复) + CardKit v2(审批),
-不接 streaming card(那是另一个分支的事)。
+Card schema 统一使用 CardKit V2(``schema: "2.0"``);
+主回复卡片 ``##`` 标题自动折叠为 ``collapsible_panel``。
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any, Literal
+from typing import Literal
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import (
@@ -31,6 +31,7 @@ from lark_oapi.api.im.v1 import (
     ReplyMessageResponse,
 )
 
+from berry.channels.feishu.card_builder import build_markdown_card_v2
 from berry.observability.logging import get_logger
 
 logger = get_logger(__name__)
@@ -45,26 +46,8 @@ def _build_text_content(text: str) -> str:
 
 
 def _build_markdown_card(md: str, *, header_title: str | None = None) -> str:
-    """飞书 card v1 schema(够 markdown 渲染)。
-
-    模板 schema 见
-    https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/feishu-cards/card-json-structure
-    用最小集:`config.wide_screen_mode=True` + `elements: [{tag: 'markdown', content}]`。
-    """
-    card: dict[str, Any] = {
-        "config": {"wide_screen_mode": True},
-        "elements": [
-            {
-                "tag": "markdown",
-                "content": md,
-            }
-        ],
-    }
-    if header_title is not None:
-        card["header"] = {
-            "title": {"tag": "plain_text", "content": header_title},
-        }
-    return json.dumps(card, ensure_ascii=False)
+    """CardKit V2 card — ``##`` headings become collapsible panels."""
+    return build_markdown_card_v2(md, header_title=header_title)
 
 
 def _create_message(

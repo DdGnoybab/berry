@@ -29,6 +29,7 @@ from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
 
 from berry.channels.feishu import conversation_id as conv_id_mod
 from berry.channels.feishu import policy as policy_mod
+from berry.channels.feishu import reaction as reaction_mod
 from berry.channels.feishu import send as send_mod
 from berry.channels.feishu.monitor_state import get_http_client
 from berry.channels.feishu.runtime import get_feishu_runtime
@@ -200,6 +201,10 @@ async def handle_feishu_message(
     log = log.bind(conversation_id=conversation_id)
     log.info("feishu_turn_started")
 
+    # Typing 表情:让用户知道 bot 已收到消息,正在处理
+    client = get_http_client(event.account_id)
+    reaction_id = reaction_mod.add_typing_reaction(client, event.message_id)
+
     # 群聊:全群一个 session,LLM 必须能区分谁说的 — 给文本加 sender 标签前缀。
     # DM 不需要(会话已经按 sender 切)。对齐 openclaw `buildFeishuAgentBody`
     # 的 `${speaker}: ${body}` 思路,简化:直接用 open_id,不查 sender 显示名。
@@ -230,9 +235,12 @@ async def handle_feishu_message(
 
     log.info("feishu_turn_completed", final_text_chars=len(final_text))
 
+    # 移除 Typing 表情(回复已发出)
+    if reaction_id:
+        reaction_mod.remove_reaction(client, event.message_id, reaction_id)
+
     # 4. 出站 — 群聊 reply 到触发消息,DM 直接 create
     reply_to = event.message_id if is_group else None
-    client = get_http_client(event.account_id)
     ok = send_mod.send_card_markdown(
         client,
         chat_id=event.chat_id,

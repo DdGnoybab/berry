@@ -39,6 +39,10 @@ from berry.core.agent.compaction import (
     compact_session,
     estimate_session_tokens,
 )
+from berry.core.agent.hook import (
+    HookRunner,
+    HookVerdictAction,
+)
 from berry.core.agent.session import AgentSession
 from berry.core.agent.stream_accumulator import StreamAccumulator
 from berry.core.agent.tool_registry import ToolRegistry
@@ -81,6 +85,7 @@ class ConversationRuntime:
         approval_policy: ApprovalPolicy,
         approval_channel: ApprovalChannel,
         db_session_factory: DbSessionFactory,
+        hook_runner: HookRunner | None = None,
         model_id: str = "main",
         max_inner_loops: int = 20,
         auto_compact_threshold: int = 100_000,
@@ -89,6 +94,7 @@ class ConversationRuntime:
         self._tools = tool_registry
         self._policy = approval_policy
         self._channel = approval_channel
+        self._hook_runner = hook_runner
         self._db_factory = db_session_factory
         self._model_id = model_id
         self._max_inner_loops = max_inner_loops
@@ -207,10 +213,24 @@ class ConversationRuntime:
         tool_use: ToolUseBlock,
         ctx: ToolContext,
     ) -> ToolResultBlock:
-        """Run one tool_use through policy + channel + execution; convert any
-        outcome (denied / errored / succeeded) into a ToolResultBlock the LLM
-        can consume. Never raises.
+        """Run one tool_use through hook → policy → channel → execution; convert
+        any outcome into a ToolResultBlock the LLM can consume.  Never raises.
         """
+        # 1. PreToolUse hooks (run before policy; first non-DEFER wins)
+        if self._hook_runner is not None:
+            hook_v = await self._hook_runner.run(
+                tool_use.name, tool_use.input, ctx
+            )
+            if hook_v.action is HookVerdictAction.DENY:
+                return ToolResultBlock(
+                    tool_use_id=tool_use.id,
+                    output=f"denied by hook: {hook_v.reason or 'no reason given'}",
+                    is_error=True,
+                )
+            if hook_v.action is HookVerdictAction.ALLOW:
+                return await self._execute_tool(tool_use, ctx)
+
+        # 2. Policy decision
         verdict = self._policy.decide(tool_use.name, tool_use.input, ctx)
 
         if verdict.decision is ApprovalDecision.AUTO_DENY:
@@ -232,6 +252,14 @@ class ConversationRuntime:
                 )
 
         # Either AUTO_ALLOW or REQUIRE_APPROVAL+approved — execute.
+        return await self._execute_tool(tool_use, ctx)
+
+    async def _execute_tool(
+        self,
+        tool_use: ToolUseBlock,
+        ctx: ToolContext,
+    ) -> ToolResultBlock:
+        """Lookup and execute a tool; wrap result or error into a ToolResultBlock."""
         try:
             tool = self._tools.get(tool_use.name)
         except KeyError:
