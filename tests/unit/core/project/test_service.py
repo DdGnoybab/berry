@@ -109,14 +109,6 @@ def test_subdirs_are_inside_workspace(tmp_path: Path) -> None:
     assert svc.domain_dir(p) == ws / "learning"
 
 
-def test_learning_paths(tmp_path: Path) -> None:
-    svc = ProjectService(tmp_path)
-    p = _make_project(name="redis", domain="learning")
-
-    assert svc.learning_progress_file(p) == svc.domain_dir(p) / "progress.md"
-    assert svc.learning_materials_dir(p) == svc.domain_dir(p) / "materials"
-
-
 # ─── init_workspace ──────────────────────────────────────
 
 
@@ -131,7 +123,6 @@ def test_init_workspace_creates_dirs(tmp_path: Path) -> None:
     assert (ws / "sessions").is_dir()
     assert (ws / "tasks").is_dir()
     assert (ws / "uploads").is_dir()
-    assert (ws / "learning" / "materials").is_dir()
 
 
 def test_init_workspace_is_idempotent(tmp_path: Path) -> None:

@@ -10,10 +10,8 @@ Policies return ``PolicyVerdict`` rather than a bare ``ApprovalDecision`` so tha
 the LLM (in the denial ToolResultBlock) and to the user (in the approval UI).
 
 WhitelistPolicy is the only generic policy implementation in this module.
-Domain-specific approval lists (e.g. learning's
-{write_md, edit_md, propose_milestones, update_milestones}) are constructed
-in assistants/<name>/tutor.py — NOT hard-coded here, per ADR-0003 rule 3
-("core does not depend on assistants").
+Domain-specific approval lists are constructed in assistants/<name>/ —
+NOT hard-coded here, per ADR-0003 rule 3 ("core does not depend on assistants").
 """
 
 from __future__ import annotations

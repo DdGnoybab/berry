@@ -21,11 +21,6 @@ class MessageRole(StrEnum):
     SYSTEM = "system"
 
 
-class ExternalSource(StrEnum):
-    FEISHU = "feishu"
-    CLI = "cli"
-
-
 class Channel(StrEnum):
     FEISHU = "feishu"
     CLI = "cli"

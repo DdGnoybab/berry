@@ -78,10 +78,12 @@ CLAUDE.md
 /quizzes/m1.1-q1.md
 /notes/m1.1-sds.md
 /scripts/manual_feishu_approval_test.md
-/PROGRESS.md
 /SESSION_LOG.md
 /test/asr.py
 /test/audio_example.wav
 /.qwen/skills/feishu-cardkit-v2/SKILL.md
 /.qwen/settings.json.orig
 /.qwen/settings.json
+/.berry/todos.json
+/sds.md
+/PROGRESS.md

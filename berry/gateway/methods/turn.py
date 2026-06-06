@@ -1,14 +1,14 @@
 """turn.send / turn.cancel handlers.
 
 Stage 2:
-- turn.send connects to LLM via an injected TurnRunner (GoalTutor in practice)
+- turn.send connects to LLM via an injected TurnRunner
 - Explicitly persists messages via SessionStore (Stage 1 moved this from runtime to caller)
 - Picks runner by project.domain; for now only "learning" is supported
 
 Architecture compliance:
   gateway must not import channels.* or assistants.* (import-linter rules 3b / 10).
   Instead, the entrypoint (entrypoints/cli.py or entrypoints/feishu.py) constructs
-  the runner (GoalTutor) and registers it here via configure_runner() before the
+  the runner and registers it here via configure_runner() before the
   REPL / event loop starts.
 
   TurnRunner Protocol lives in core/agent/ — gateway is allowed to import that.
@@ -46,8 +46,8 @@ def configure_runner(runner: TurnRunner) -> None:
     """Inject the TurnRunner implementation (called by entrypoints at startup).
 
     Args:
-        runner: A GoalTutor (learning), WorkAssistant (work), etc.  Any object
-                that satisfies TurnRunner Protocol.
+        runner: Any object that satisfies TurnRunner Protocol
+                (e.g. ConversationRuntime wrapper, assistant implementation).
     """
     global _runner
     _runner = runner

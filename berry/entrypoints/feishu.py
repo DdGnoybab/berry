@@ -30,6 +30,7 @@ from berry.channels.feishu.approval_channel import FeishuApprovalChannel
 from berry.channels.feishu.monitor import monitor_feishu_provider
 from berry.channels.feishu.runtime import set_feishu_runtime
 from berry.channels.feishu.runtime_adapter import FeishuRuntimeAdapter
+from berry.channels.feishu.todo_card import render_todo_card
 from berry.channels.feishu.types import FeishuAccount, ResolvedFeishuAccount
 from berry.config import FeishuSettings
 from berry.core.db.repos.user_repo import UserRepo
@@ -148,6 +149,9 @@ async def _async_main() -> None:
     approval_channel.set_chat_resolver(adapter.chat_resolver)
     set_feishu_runtime(adapter)
 
+    # 注册 todo 事件监听器 — todo_write 执行后飞书发进度卡片
+    _register_todo_listener(adapter, lark_client, account.account.account_id)
+
     logger.info(
         "feishu_entrypoint_starting",
         app_id=account.account.app_id,
@@ -178,6 +182,31 @@ def main() -> None:
         asyncio.run(_async_main())
     except KeyboardInterrupt:
         logger.info("feishu_entrypoint_interrupted")
+
+
+def _register_todo_listener(
+    adapter: FeishuRuntimeAdapter,
+    lark_client: object,
+    account_id: str,
+) -> None:
+    """注册 todo 事件监听器,收到更新时发飞书进度卡片。"""
+    from berry.channels.feishu import send as send_mod
+    from berry.core.agent.todo_event import TodoUpdatedEvent, register_todo_listener
+
+    def _on_todo_updated(event: TodoUpdatedEvent) -> None:
+        chat_id, _, trigger_message_id = adapter.chat_resolver(event.conversation_id)
+        if not chat_id:
+            return
+
+        card_md = render_todo_card(event.todos, event.old_todos)
+        send_mod.send_card_markdown(
+            lark_client,
+            chat_id=chat_id,
+            markdown=card_md,
+            reply_to_message_id=trigger_message_id,
+        )
+
+    register_todo_listener(_on_todo_updated)
 
 
 if __name__ == "__main__":

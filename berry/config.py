@@ -34,7 +34,7 @@ class Settings(BaseSettings):
         default_factory=lambda: _REPO_ROOT / "data",
         description=(
             "Berry 自家数据目录,默认 <repo_root>/data/(绝对路径,不会泄漏到用户 cwd)。"
-            "Goal 的 workspace_path 都是相对此目录的相对路径。"
+            "Project 的 workspace_path 都是相对此目录的相对路径。"
             "学习场景下用户的 workspace 走 cwd,跟 data_root 无关。"
         ),
     )

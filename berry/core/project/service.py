@@ -99,31 +99,18 @@ class ProjectService:
         """Domain-specific 子目录。例 learning project -> workspace/learning/"""
         return self.workspace_path(project) / project.domain
 
-    # ── learning domain 专属 ──
-
-    def learning_progress_file(self, project: Project) -> Path:
-        """Learning domain 的进度文件路径。"""
-        return self.domain_dir(project) / "progress.md"
-
-    def learning_materials_dir(self, project: Project) -> Path:
-        """Learning domain 的学习材料目录。"""
-        return self.domain_dir(project) / "materials"
-
     # ── 初始化 ──
 
     def init_workspace(self, project: Project) -> None:
         """新建 project 时调用,mkdir 必要的子目录。
 
-        幂等:已存在的目录跳过;不写任何文件(progress.md 等到 Agent 真用时才创建)。
+        幂等:已存在的目录跳过;不写任何文件(Agent 真用时才创建)。
         """
         ws = self.workspace_path(project)
         ws.mkdir(parents=True, exist_ok=True)
         self.sessions_dir(project).mkdir(exist_ok=True)
         self.tasks_dir(project).mkdir(exist_ok=True)
         self.uploads_dir(project).mkdir(exist_ok=True)
-
-        if project.domain == "learning":
-            self.learning_materials_dir(project).mkdir(parents=True, exist_ok=True)
 
     # ── 安全 ──
 

@@ -52,6 +52,7 @@ from berry.core.llm.types import (
     LlmMessage,
     LlmRequest,
     StreamEvent,
+    TextBlock,
     TextDelta,
     ToolCallStart,
     ToolResultBlock,
@@ -89,6 +90,7 @@ class ConversationRuntime:
         model_id: str = "main",
         max_inner_loops: int = 20,
         auto_compact_threshold: int = 100_000,
+        todo_nag_rounds: int = 3,
     ) -> None:
         self._gateway = llm_gateway
         self._tools = tool_registry
@@ -99,6 +101,7 @@ class ConversationRuntime:
         self._model_id = model_id
         self._max_inner_loops = max_inner_loops
         self._auto_compact_threshold = auto_compact_threshold
+        self._todo_nag_rounds = todo_nag_rounds
 
     async def run_turn(
         self,
@@ -127,14 +130,27 @@ class ConversationRuntime:
         ctx = ToolContext(
             session_id=session.id,
             user_id=session.user_id,
-            goal_id=None,  # Round 4: GoalTutor will populate this
+            goal_id=None,
             db=db,
             data_root=_data_root_default(),
             cwd=_cwd_default(),
         )
 
+        rounds_since_todo = 0
+
         for _ in range(self._max_inner_loops):
-            # 2. Build request from current message history + tool schemas
+            # Nag reminder: inject if todo_write hasn't been called for a while.
+            if self._todo_nag_rounds > 0 and rounds_since_todo >= self._todo_nag_rounds:
+                if _has_pending_todos(ctx.cwd):
+                    session.push_message(LlmMessage(
+                        role="user",
+                        content=[TextBlock(
+                            text="<reminder>You have pending todos. "
+                            "Update your task list to track progress.</reminder>"
+                        )],
+                    ))
+                rounds_since_todo = 0
+
             request = LlmRequest(
                 model=self._model_id,
                 messages=list(session.messages),
@@ -157,7 +173,7 @@ class ConversationRuntime:
             # 4. Persist: llm_call_logs + push assistant message
             await log_repo.append(
                 user_id=session.user_id,
-                project_id=None,                       # Stage 1 不传 project,Stage 2 GoalTutor 注入
+                project_id=None,
                 session_id=session.id,  # already a string
                 model=self._model_id,
                 request=request.model_dump(),
@@ -199,6 +215,12 @@ class ConversationRuntime:
             #    (Anthropic convention: tool_result blocks live in user role).
             tool_msg = LlmMessage(role="user", content=list(tool_results))
             session.push_message(tool_msg)
+
+            # Track todo_write calls for nag reminder
+            if any(tu.name == "todo_write" for tu in tool_uses):
+                rounds_since_todo = 0
+            else:
+                rounds_since_todo += 1
 
             # Loop: re-call the LLM with the new tool_result context.
 
@@ -348,3 +370,17 @@ def _data_root_default() -> Path:
     root = settings.data_root
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def _has_pending_todos(cwd: Path) -> bool:
+    """Check if there are pending/in_progress todos in the workspace."""
+    import json as _json
+
+    todo_path = cwd / ".berry" / "todos.json"
+    if not todo_path.is_file():
+        return False
+    try:
+        todos = _json.loads(todo_path.read_text(encoding="utf-8"))
+        return any(t.get("status") != "completed" for t in todos)
+    except (OSError, _json.JSONDecodeError):
+        return False

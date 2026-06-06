@@ -1,17 +1,14 @@
 """TurnRunner — the contract a channel uses to drive a single user turn.
 
-A channel (CLI REPL, feishu, ...) doesn't care whether it's talking to a
-bare ``ConversationRuntime`` (Round 2: system prompt passed in directly) or
-to a ``GoalTutor`` (Round 4: assembles a fresh system prompt per turn from
-DB state). Both implement this Protocol — the channel calls ``run_turn``
-the same way.
+A channel (CLI REPL, feishu, ...) doesn't care what implementation it's
+talking to — anything that satisfies this Protocol works. The channel
+calls ``run_turn`` the same way regardless.
 
 Why this lives in ``core/agent/`` rather than next to ``ConversationRuntime``:
 - Channels import this Protocol; channels/* are not allowed to import
   business code (assistants/*) under ADR-0003. Putting the Protocol in
-  ``core/agent`` lets both ``core.agent.runtime.ConversationRuntime`` and
-  ``assistants.learning.tutor.GoalTutor`` satisfy it without reaching across
-  layers backwards.
+  ``core/agent`` lets any assistant implementation satisfy it without
+  reaching across layers backwards.
 """
 
 from __future__ import annotations
@@ -29,7 +26,7 @@ class TurnRunner(Protocol):
 
     Implementations:
     - ``ConversationRuntime`` — generic loop; system prompt passed in.
-    - ``GoalTutor`` — wraps ConversationRuntime; assembles the prompt itself.
+    - Assistant wrappers — assemble their own prompt per turn.
 
     The channel calls ``run_turn(session, user_text)`` and renders whatever
     ``AgentEvent``s come out. If the implementation needs more context

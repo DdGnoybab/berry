@@ -2,9 +2,7 @@
 
 Read a line from stdin, hand it to a TurnRunner, render the streaming
 events back to stdout. Very thin — no business logic, no system prompt
-ownership. Both ``ConversationRuntime`` (with a fixed system prompt
-adapter, see entrypoint) and ``GoalTutor`` (assembles its own prompt
-per turn) satisfy ``TurnRunner`` and plug in here unchanged.
+ownership. Any object that satisfies ``TurnRunner`` plugs in here unchanged.
 
 Lifecycle:
     user runs `python -m berry.entrypoints.cli`
