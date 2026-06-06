@@ -101,6 +101,7 @@ class SystemPromptBuilder:
     _current_date: str = field(default_factory=lambda: datetime.now(UTC).date().isoformat())
     _instruction_files: list[tuple[str, str]] = field(default_factory=list)
     _available_skills: list[tuple[str, str]] = field(default_factory=list)
+    _memory_entries: list[tuple[str, str]] = field(default_factory=list)
     _append_sections: list[str] = field(default_factory=list)
 
     def with_os(self, os_name: str, os_version: str) -> "SystemPromptBuilder":
@@ -135,6 +136,11 @@ class SystemPromptBuilder:
         self._available_skills = skills
         return self
 
+    def with_memory(self, entries: list[tuple[str, str]]) -> "SystemPromptBuilder":
+        """Add memory entries (name, description) to prompt for cross-session knowledge."""
+        self._memory_entries = entries
+        return self
+
     def build(self) -> str:
         """Assemble the full system prompt string."""
         sections = self._build_sections()
@@ -156,6 +162,8 @@ class SystemPromptBuilder:
             sections.append(self._render_instruction_files())
         if self._available_skills:
             sections.append(self._render_available_skills())
+        if self._memory_entries:
+            sections.append(self._render_memory_section())
         sections.extend(self._append_sections)
 
         return sections
@@ -195,6 +203,26 @@ class SystemPromptBuilder:
             "BEFORE responding. The skill's instructions will guide your behavior."
         )
         lines.append("</system-reminder>")
+        return "\n".join(lines)
+
+    def _render_memory_section(self) -> str:
+        """Render memory entries as a system-reminder block.
+
+        Injects persistent cross-session knowledge so the LLM can act on
+        user preferences and project facts without the user repeating them.
+        """
+        lines = [
+            "# Memory",
+            "The following memories are available:",
+            "",
+        ]
+        for name, description in self._memory_entries:
+            lines.append(f"- {name}: {description}")
+        lines.append("")
+        lines.append(
+            "These are persistent facts. Act according to them "
+            "without the user repeating."
+        )
         return "\n".join(lines)
 
 
@@ -302,4 +330,21 @@ def build_default_system_prompt(cwd: Path | None = None) -> str:
     if available_skills:
         builder.with_available_skills(available_skills)
 
+    memory_entries = discover_memory_entries(effective_cwd)
+    if memory_entries:
+        builder.with_memory(memory_entries)
+
     return builder.build()
+
+
+def discover_memory_entries(cwd: Path) -> list[tuple[str, str]]:
+    """Scan memory directory and return (name, description) pairs for the index.
+
+    Memory files live in ``{data_root}/memory/``.
+    """
+    from berry.core.tools.memory.store import MemoryStore
+
+    memory_dir = settings.data_root / "memory"
+    store = MemoryStore(memory_dir)
+    entries = store.list_all()
+    return [(e.name, e.description) for e in entries]

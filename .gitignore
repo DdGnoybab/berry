@@ -85,5 +85,7 @@ CLAUDE.md
 /.qwen/settings.json.orig
 /.qwen/settings.json
 /.berry/todos.json
+/.berry/transcripts/
+/.berry/tool_outputs/
 /sds.md
 /PROGRESS.md

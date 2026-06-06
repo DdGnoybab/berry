@@ -140,6 +140,9 @@ class ConversationRuntime:
         rounds_since_todo = 0
         reactive_retries = 0
 
+        # ─── Memory: load relevant memories into context ───
+        await self._load_relevant_memories(session, ctx)
+
         for _ in range(self._max_inner_loops):
             # ─── 四层压缩管线（每轮 LLM 调用前） ───
             session.messages = list(apply_compaction_pipeline(
@@ -201,6 +204,9 @@ class ConversationRuntime:
             ]
             if not tool_uses:
                 # Plain assistant reply — turn done.
+                # ─── Memory: extract + consolidate (fire-and-forget) ───
+                await self._extract_and_consolidate(session, ctx)
+
                 yield agent_events.TurnEnd(
                     stop_reason=response.stop_reason.value
                     if hasattr(response.stop_reason, "value")
@@ -318,6 +324,103 @@ class ConversationRuntime:
             is_error=False,
         )
 
+    # ─── Memory integration ───────────────────────────────────────────
+
+    async def _load_relevant_memories(
+        self,
+        session: AgentSession,
+        ctx: ToolContext,
+    ) -> None:
+        """Select and inject relevant memories into the current turn."""
+        try:
+            from berry.core.tools.memory.loader import (
+                build_memory_injection,
+                load_relevant_memories,
+                select_relevant_memories,
+            )
+            from berry.core.tools.memory.store import MemoryStore
+
+            memory_dir = ctx.data_root / "memory"
+            store = MemoryStore(memory_dir)
+            catalog = store.list_all()
+            if not catalog:
+                return
+
+            # Get recent user text for matching
+            recent_text = _last_user_text(session)
+            if not recent_text:
+                return
+
+            # Build a lightweight LLM invoker
+            async def invoke_llm(prompt: str) -> str:
+                from berry.core.llm.types import LlmMessage, TextBlock
+
+                req = LlmRequest(
+                    model="classify",
+                    messages=[LlmMessage(role="user", content=[TextBlock(text=prompt)])],
+                    stream=False,
+                )
+                resp = await self._gateway.invoke("classify", req)
+                for block in resp.content:
+                    if hasattr(block, "text"):
+                        return block.text
+                return ""
+
+            filenames = await select_relevant_memories(
+                recent_text, catalog, invoke_llm=invoke_llm
+            )
+            if not filenames:
+                return
+
+            entries = load_relevant_memories(memory_dir, filenames)
+            if not entries:
+                return
+
+            injection = build_memory_injection(entries)
+            if injection:
+                from berry.core.llm.types import TextBlock
+
+                session.push_message(LlmMessage(
+                    role="user",
+                    content=[TextBlock(text=injection)],
+                ))
+        except Exception:
+            logger.warning("memory_load_failed", exc_info=True)
+
+    async def _extract_and_consolidate(
+        self,
+        session: AgentSession,
+        ctx: ToolContext,
+    ) -> None:
+        """Extract new memories and consolidate if needed. Fire-and-forget."""
+        try:
+            from berry.core.tools.memory.consolidator import consolidate_memories
+            from berry.core.tools.memory.extractor import extract_memories
+            from berry.core.tools.memory.store import MemoryStore
+
+            memory_dir = ctx.data_root / "memory"
+            store = MemoryStore(memory_dir)
+
+            # Build LLM invoker
+            async def invoke_llm(prompt: str) -> str:
+                from berry.core.llm.types import LlmMessage, TextBlock
+
+                req = LlmRequest(
+                    model="classify",
+                    messages=[LlmMessage(role="user", content=[TextBlock(text=prompt)])],
+                    stream=False,
+                )
+                resp = await self._gateway.invoke("classify", req)
+                for block in resp.content:
+                    if hasattr(block, "text"):
+                        return block.text
+                return ""
+
+            await extract_memories(session.messages, store, invoke_llm=invoke_llm)
+            await consolidate_memories(store, invoke_llm=invoke_llm)
+        except Exception:
+            logger.warning("memory_extract_consolidate_failed", exc_info=True)
+
 
 # ─── helpers ────────────────────────────────────────────────────────────
 
@@ -376,3 +479,19 @@ def _has_pending_todos(cwd: Path) -> bool:
         return any(t.get("status") != "completed" for t in todos)
     except (OSError, _json.JSONDecodeError):
         return False
+
+
+def _last_user_text(session: AgentSession) -> str:
+    """Extract plain text from the last user message."""
+    for msg in reversed(session.messages):
+        if msg.role != "user":
+            continue
+        if isinstance(msg.content, str):
+            return msg.content
+        if isinstance(msg.content, list):
+            parts: list[str] = []
+            for block in msg.content:
+                if hasattr(block, "text"):
+                    parts.append(block.text)
+            return " ".join(parts)
+    return ""

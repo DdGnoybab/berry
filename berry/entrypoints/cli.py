@@ -47,6 +47,8 @@ from berry.core.tools.core import (
     TodoWriteTool,
 )
 from berry.core.tools.files import EditFileTool, ReadFileTool, WriteFileTool
+from berry.core.tools.memory.read import MemoryReadTool
+from berry.core.tools.memory.write import MemoryWriteTool
 from berry.core.tools.web.fetch import WebFetchTool
 from berry.core.tools.web.registry import SearchProviderRegistry
 from berry.core.tools.web.search import WebSearchTool
@@ -104,6 +106,8 @@ def _build_runtime(
             TodoWriteTool(),
             TodoReadTool(),
             SkillTool(),
+            MemoryReadTool(),
+            MemoryWriteTool(),
         ]
     )
     policy = LayeredPolicy()
