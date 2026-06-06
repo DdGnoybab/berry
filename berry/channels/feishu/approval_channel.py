@@ -31,12 +31,17 @@ from berry.observability.logging import get_logger
 
 logger = get_logger(__name__)
 
-ChatResolver = Callable[[str], tuple[str | None, str | None]]
-"""``session_id -> (chat_id, expected_user_open_id)``.
+ChatResolver = Callable[[str], tuple[str | None, str | None, str | None]]
+"""``session_id -> (chat_id, expected_user_open_id, trigger_message_id)``.
 
-Returns ``(None, None)`` when the session has no Feishu chat context (e.g.
-a session that was created via the CLI). Channel falls back to deny when
-that happens — never blocks the turn.
+Returns ``(None, None, None)`` when the session has no Feishu chat context
+(e.g. a session that was created via the CLI). Channel falls back to deny
+when that happens — never blocks the turn.
+
+``trigger_message_id`` lets the channel reply the approval card under the
+user's @ trigger in group chats. DM also benefits — the approval card sits
+right under the request that triggered it, instead of arbitrarily at the
+bottom of the chat.
 """
 
 APPROVAL_TIMEOUT_SECONDS = 90.0
@@ -64,7 +69,9 @@ class FeishuApprovalChannel:
             logger.error("feishu_approval_no_resolver", session_id=ctx.session_id)
             return False
 
-        chat_id, expected_open_id = self._chat_resolver(ctx.session_id)
+        chat_id, expected_open_id, trigger_message_id = self._chat_resolver(
+            ctx.session_id,
+        )
         if chat_id is None:
             logger.error("feishu_approval_no_chat", session_id=ctx.session_id)
             return False
@@ -87,7 +94,10 @@ class FeishuApprovalChannel:
                 expires_at_ms=expires_at_ms,
             )
             message_id = send_approval_card(
-                self._client, chat_id=chat_id, card_json=card_json,
+                self._client,
+                chat_id=chat_id,
+                card_json=card_json,
+                reply_to_message_id=trigger_message_id,
             )
             if message_id is None:
                 logger.error(
