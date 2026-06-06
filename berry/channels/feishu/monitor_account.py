@@ -30,8 +30,15 @@ async def monitor_single_account(
     state_dir: Path,
     dm_policy: policy_mod.DmPolicy,
     allowed_open_ids: list[str],
+    group_allow_from: list[str],
 ) -> None:
-    """启动一个 account 的 WS 监听,跑到结束。"""
+    """启动一个 account 的 WS 监听,跑到结束。
+
+    Args:
+        group_allow_from: 群聊白名单 chat_id;空 → 群聊禁用。
+            ``account.bot_open_id`` 为空时即使 group_allow_from 非空,
+            群聊也会被 `policy.check_group_mention_required` 保守拒。
+    """
     account_id = account.account.account_id
 
     # 1. HTTP client → state(给 bot.handle 出站用)
@@ -54,6 +61,8 @@ async def monitor_single_account(
         queue=queue,
         dm_policy=dm_policy,
         allowed_open_ids=allowed_open_ids,
+        bot_open_id=account.bot_open_id,
+        group_allow_from=group_allow_from,
         loop=loop,
     )
 
@@ -80,5 +89,7 @@ async def monitor_single_account(
         bot_name=account.account.bot_name,
         dm_policy=dm_policy,
         allowlist_size=len(allowed_open_ids),
+        group_allow_size=len(group_allow_from),
+        bot_open_id_configured=bool(account.bot_open_id),
     )
     await monitor_websocket(account_id=account_id, ws_client=ws_client)

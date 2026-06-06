@@ -37,6 +37,8 @@ def create_message_receive_handler(
     queue: SequentialQueue,
     dm_policy: policy_mod.DmPolicy,
     allowed_open_ids: list[str],
+    bot_open_id: str | None,
+    group_allow_from: list[str],
     loop: asyncio.AbstractEventLoop,
 ) -> Callable[[P2ImMessageReceiveV1], None]:
     """返回一个供 `EventDispatcherHandlerBuilder.register_p2_im_message_receive_v1`
@@ -45,6 +47,8 @@ def create_message_receive_handler(
     Args:
         loop: 主 asyncio loop — handler 是 SDK 在 thread 里调的同步函数,
             必须把 async 工作 schedule 回主 loop。
+        bot_open_id: bot 自身 open_id,群聊 @ 检测必需;空 → 群聊整体禁用。
+        group_allow_from: 群聊白名单 chat_id;空 → 群聊禁用。
 
     回调里只做最小工作:parse + dedup + enqueue,然后立刻返回(SDK 在等
     response 给飞书 server)。
@@ -84,6 +88,8 @@ def create_message_receive_handler(
                     event,
                     dm_policy=dm_policy,
                     allowed_open_ids=allowed_open_ids,
+                    bot_open_id=bot_open_id,
+                    group_allow_from=group_allow_from,
                 ),
             )
 
