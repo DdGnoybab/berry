@@ -24,6 +24,7 @@ class AutoApproveChannel:
         tool_name: str,
         args: dict[str, Any],
         ctx: ToolContext,
+        reason: str | None = None,
     ) -> bool:
         return True
 
@@ -39,5 +40,6 @@ class AutoDenyChannel:
         tool_name: str,
         args: dict[str, Any],
         ctx: ToolContext,
+        reason: str | None = None,
     ) -> bool:
         return False

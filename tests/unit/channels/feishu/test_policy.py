@@ -12,24 +12,59 @@ from berry.channels.feishu.policy import admit, check_dm_admission
 from berry.channels.feishu.types import FeishuChatType, FeishuMessageEvent
 
 
-# ---- DM allowlist -----------------------------------------------------------
+# ---- DM:open 模式(默认,对齐 openclaw)------------------------------------
 
 
-def test_dm_admit_when_in_allowlist() -> None:
-    assert check_dm_admission("ou_a", ["ou_a", "ou_b"]) is True
+def test_dm_open_admits_anyone() -> None:
+    assert check_dm_admission("ou_a", dm_policy="open", allowed_open_ids=[]) is True
+    assert (
+        check_dm_admission("ou_random", dm_policy="open", allowed_open_ids=["ou_x"])
+        is True
+    )
 
 
-def test_dm_reject_when_not_in_allowlist() -> None:
-    assert check_dm_admission("ou_x", ["ou_a", "ou_b"]) is False
+def test_dm_open_still_rejects_empty_sender() -> None:
+    """Even in open mode, missing sender_open_id is rejected — defends against
+    malformed events that slipped through parse."""
+    assert check_dm_admission("", dm_policy="open", allowed_open_ids=[]) is False
+    assert check_dm_admission("   ", dm_policy="open", allowed_open_ids=[]) is False
 
 
-def test_dm_reject_when_allowlist_empty() -> None:
-    assert check_dm_admission("ou_a", []) is False, "MVP 严格模式:空名单 = 拒所有"
+# ---- DM:allowlist 模式 -----------------------------------------------------
 
 
-def test_dm_reject_empty_sender() -> None:
-    assert check_dm_admission("", ["ou_a"]) is False
-    assert check_dm_admission("   ", ["ou_a"]) is False
+def test_dm_allowlist_admits_when_in_list() -> None:
+    assert (
+        check_dm_admission(
+            "ou_a", dm_policy="allowlist", allowed_open_ids=["ou_a", "ou_b"],
+        )
+        is True
+    )
+
+
+def test_dm_allowlist_rejects_when_not_in_list() -> None:
+    assert (
+        check_dm_admission(
+            "ou_x", dm_policy="allowlist", allowed_open_ids=["ou_a", "ou_b"],
+        )
+        is False
+    )
+
+
+def test_dm_allowlist_rejects_when_list_empty() -> None:
+    assert (
+        check_dm_admission("ou_a", dm_policy="allowlist", allowed_open_ids=[])
+        is False
+    ), "allowlist 模式 + 空列表 = 拒所有(对齐 openclaw)"
+
+
+def test_dm_allowlist_rejects_empty_sender() -> None:
+    assert (
+        check_dm_admission(
+            "", dm_policy="allowlist", allowed_open_ids=["ou_a"],
+        )
+        is False
+    )
 
 
 # ---- 群聊 ------------------------------------------------------------------
@@ -44,9 +79,9 @@ def test_admit_rejects_group_in_mvp() -> None:
         sender_open_id="ou_a",
         text="hi",
     )
-    assert admit(ev, allowed_open_ids=["ou_a"]) is False, (
-        "MVP 不响应群聊,即使 sender 在 DM allowlist"
-    )
+    assert (
+        admit(ev, dm_policy="open", allowed_open_ids=["ou_a"]) is False
+    ), "MVP 不响应群聊,无论 dm_policy"
 
 
 # ---- conversation_id -------------------------------------------------------
@@ -81,7 +116,7 @@ def test_build_for_event_group_raises() -> None:
         build_for_event(ev)
 
 
-def test_admit_dm_path() -> None:
+def test_admit_dm_open_lets_through() -> None:
     ev = FeishuMessageEvent(
         account_id="A",
         message_id="om_1",
@@ -90,5 +125,17 @@ def test_admit_dm_path() -> None:
         sender_open_id="ou_alice",
         text="hi",
     )
-    assert admit(ev, allowed_open_ids=["ou_alice"]) is True
-    assert admit(ev, allowed_open_ids=["ou_other"]) is False
+    assert admit(ev, dm_policy="open", allowed_open_ids=[]) is True
+
+
+def test_admit_dm_allowlist_path() -> None:
+    ev = FeishuMessageEvent(
+        account_id="A",
+        message_id="om_1",
+        chat_id="oc_p2p",
+        chat_type=FeishuChatType.P2P,
+        sender_open_id="ou_alice",
+        text="hi",
+    )
+    assert admit(ev, dm_policy="allowlist", allowed_open_ids=["ou_alice"]) is True
+    assert admit(ev, dm_policy="allowlist", allowed_open_ids=["ou_other"]) is False

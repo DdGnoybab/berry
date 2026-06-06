@@ -29,15 +29,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from berry.config import settings
 from berry.core.agent import events as agent_events
-from berry.core.agent.compaction import (
-    CompactionConfig,
-    compact_session,
-    estimate_session_tokens,
-)
 from berry.core.agent.approval import (
     ApprovalChannel,
     ApprovalDecision,
     ApprovalPolicy,
+)
+from berry.core.agent.compaction import (
+    CompactionConfig,
+    compact_session,
+    estimate_session_tokens,
 )
 from berry.core.agent.session import AgentSession
 from berry.core.agent.stream_accumulator import StreamAccumulator
@@ -211,21 +211,23 @@ class ConversationRuntime:
         outcome (denied / errored / succeeded) into a ToolResultBlock the LLM
         can consume. Never raises.
         """
-        decision = self._policy.decide(tool_use.name, tool_use.input, ctx)
+        verdict = self._policy.decide(tool_use.name, tool_use.input, ctx)
 
-        if decision is ApprovalDecision.AUTO_DENY:
+        if verdict.decision is ApprovalDecision.AUTO_DENY:
             return ToolResultBlock(
                 tool_use_id=tool_use.id,
-                output="auto-denied by policy",
+                output=f"auto-denied by policy: {verdict.reason or 'no reason given'}",
                 is_error=True,
             )
 
-        if decision is ApprovalDecision.REQUIRE_APPROVAL:
-            allowed = await self._channel.ask(tool_use.name, tool_use.input, ctx)
+        if verdict.decision is ApprovalDecision.REQUIRE_APPROVAL:
+            allowed = await self._channel.ask(
+                tool_use.name, tool_use.input, ctx, reason=verdict.reason
+            )
             if not allowed:
                 return ToolResultBlock(
                     tool_use_id=tool_use.id,
-                    output="user denied",
+                    output=f"user denied (reason: {verdict.reason or 'unspecified'})",
                     is_error=True,
                 )
 

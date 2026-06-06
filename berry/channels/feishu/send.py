@@ -1,30 +1,40 @@
-"""Outbound — 通过 lark HTTP Client 调用 `im.v1.message.create`。
+"""Outbound — 通过 lark HTTP Client 调用 `im.v1.message.create` / `.patch`。
 
-对齐 openclaw `extensions/feishu/src/send.ts`(MVP 简化:不流式、不卡片
-streaming):
-- `send_text(client, chat_id, text)` — 纯文本(占位,bot.handle 错误兜底用)
-- `send_card_markdown(client, chat_id, md)` — 单条卡片,markdown 内容
+对齐 openclaw `extensions/feishu/src/send.ts`:
+- `send_text(client, chat_id, text)` — 纯文本(bot.handle 错误兜底用)
+- `send_card_markdown(client, chat_id, md)` — 单条 markdown 卡片(主回复用)
+- `send_approval_card(client, chat_id, card_json)` — 审批用 interactive 卡片
+- `update_card_by_message(client, message_id, card_json)` — 卡片确认后改成
+  immutable 的「已允许 / 已拒绝 / 超时」态
+- `send_invalid_notice(client, chat_id, reason)` — 卡片校验失败时给用户
+  发一段中文提示,对齐 openclaw `sendInvalidInteractionNotice`
 
-Card schema 用飞书最朴素的 div+markdown(template 也最简,不引入 CardKit
-需要的 cardId 流程)。这是 MVP 取舍:能让 LLM 输出的 markdown 被渲染,但
-不引入 streaming 复杂度。
+Card schema 用飞书最朴素的 div+markdown(主回复) + CardKit v2(审批),
+不接 streaming card(那是另一个分支的事)。
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import (
     CreateMessageRequest,
     CreateMessageRequestBody,
     CreateMessageResponse,
+    PatchMessageRequest,
+    PatchMessageRequestBody,
+    PatchMessageResponse,
 )
 
 from berry.observability.logging import get_logger
 
 logger = get_logger(__name__)
+
+InvalidNoticeReason = Literal[
+    "malformed", "stale", "wrong_user", "wrong_conversation",
+]
 
 
 def _build_text_content(text: str) -> str:
@@ -157,3 +167,111 @@ def send_card_markdown(
         )
         return False
     return True
+
+
+def send_approval_card(
+    client: lark.Client,
+    *,
+    chat_id: str,
+    card_json: str,
+) -> str | None:
+    """Send a pre-built interactive card. Returns the new ``message_id`` so the
+    caller can later patch the card to a resolved state. None on failure.
+
+    ``card_json`` is the full Feishu card content string (typically built by
+    ``card_ux_approval.build_approval_card``).
+    """
+    try:
+        resp = _create_message(
+            client,
+            receive_id=chat_id,
+            receive_id_type="chat_id",
+            msg_type="interactive",
+            content=card_json,
+        )
+    except Exception as exc:
+        logger.error(
+            "feishu_send_approval_card_failed",
+            chat_id=chat_id,
+            error_type=type(exc).__name__,
+            error=str(exc),
+            exc_info=True,
+        )
+        return None
+    if not resp.success():
+        logger.error(
+            "feishu_send_approval_card_api_error",
+            chat_id=chat_id,
+            code=resp.code,
+            msg=resp.msg,
+        )
+        return None
+    if resp.data is None or not resp.data.message_id:
+        logger.error(
+            "feishu_send_approval_card_missing_message_id",
+            chat_id=chat_id,
+        )
+        return None
+    return resp.data.message_id
+
+
+def update_card_by_message(
+    client: lark.Client,
+    *,
+    message_id: str,
+    card_json: str,
+) -> bool:
+    """Patch an existing interactive card. Used to flip the approval card
+    from pending → allowed/denied/timeout immutable state.
+    """
+    body = PatchMessageRequestBody.builder().content(card_json).build()
+    req = (
+        PatchMessageRequest.builder()
+        .message_id(message_id)
+        .request_body(body)
+        .build()
+    )
+    try:
+        resp: PatchMessageResponse = client.im.v1.message.patch(req)
+    except Exception as exc:
+        logger.error(
+            "feishu_patch_card_failed",
+            message_id=message_id,
+            error_type=type(exc).__name__,
+            error=str(exc),
+            exc_info=True,
+        )
+        return False
+    if not resp.success():
+        logger.error(
+            "feishu_patch_card_api_error",
+            message_id=message_id,
+            code=resp.code,
+            msg=resp.msg,
+        )
+        return False
+    return True
+
+
+_INVALID_NOTICE_TEXT: dict[InvalidNoticeReason, str] = {
+    "malformed":          "卡片操作无效。",
+    "stale":              "卡片已过期,请重新触发。",
+    "wrong_user":         "这张卡片属于其他用户。",
+    "wrong_conversation": "这张卡片属于其他会话。",
+}
+
+
+def send_invalid_notice(
+    client: lark.Client,
+    *,
+    chat_id: str,
+    reason: InvalidNoticeReason,
+) -> bool:
+    """Send a plain-text notice when a card_action validation fails.
+
+    Mirrors openclaw ``sendInvalidInteractionNotice``: a 1-line warning that
+    explains why the click was rejected so the user knows whether to retry
+    or wait.
+    """
+    text = _INVALID_NOTICE_TEXT[reason]
+    return send_text(client, chat_id=chat_id, text=f"⚠️ {text}")

@@ -23,7 +23,7 @@ from uuid import UUID
 from berry.channels.cli.approval import CliApprovalChannel
 from berry.channels.cli.renderer import render
 from berry.config import settings
-from berry.core.agent.approval import WhitelistPolicy
+from berry.core.agent.approval import ApprovalChannel
 from berry.core.agent.events import AgentEvent
 from berry.core.agent.prompt import build_default_system_prompt
 from berry.core.agent.runtime import ConversationRuntime
@@ -55,6 +55,7 @@ from berry.gateway.methods.registry import CallContext, MethodRegistry
 from berry.gateway.methods.turn import configure_runner
 from berry.protocol.errors import ProtocolError
 from berry.protocol.methods_core import SessionMeta
+from berry.security.permissions import LayeredPolicy
 
 DEFAULT_USER_HANDLE = "default"
 DEMO_PROJECT_NAME = "cli-demo"
@@ -63,8 +64,15 @@ DEMO_PROJECT_NAME = "cli-demo"
 # ─── Runner construction ────────────────────────────────────
 
 
-def _build_runtime() -> tuple[ConversationRuntime, str]:
+def _build_runtime(
+    *, approval_channel: ApprovalChannel | None = None,
+) -> tuple[ConversationRuntime, str]:
     """Construct ConversationRuntime + system prompt from config files.
+
+    Args:
+        approval_channel: optional override; defaults to ``CliApprovalChannel``.
+            Feishu entrypoint passes ``FeishuApprovalChannel`` here so that the
+            same business-agnostic runtime can serve both channels.
 
     Returns (runtime, system_prompt) — the CLI passes system_prompt to run_turn
     so ConversationRuntime stays business-agnostic.
@@ -98,14 +106,14 @@ def _build_runtime() -> tuple[ConversationRuntime, str]:
             SkillTool(),
         ]
     )
-    policy = WhitelistPolicy({"write_file", "edit_file", "bash"})
-    approval_channel = CliApprovalChannel()
+    policy = LayeredPolicy()
+    channel = approval_channel if approval_channel is not None else CliApprovalChannel()
 
     runtime = ConversationRuntime(
         llm_gateway=gateway,
         tool_registry=tool_registry,
         approval_policy=policy,
-        approval_channel=approval_channel,
+        approval_channel=channel,
         db_session_factory=async_session_factory,
         model_id="main",
     )

@@ -14,6 +14,7 @@ import asyncio
 from collections.abc import Iterable
 from pathlib import Path
 
+from berry.channels.feishu import policy as policy_mod
 from berry.channels.feishu.monitor_account import monitor_single_account
 from berry.channels.feishu.types import ResolvedFeishuAccount
 from berry.observability.logging import get_logger
@@ -25,6 +26,7 @@ async def monitor_feishu_provider(
     accounts: Iterable[ResolvedFeishuAccount],
     *,
     state_dir: Path,
+    dm_policy: policy_mod.DmPolicy,
     allowed_open_ids: list[str],
 ) -> None:
     """对每个 account 起一个 task 跑 WS。任一 task 抛出就让进程崩,由进程
@@ -44,6 +46,7 @@ async def monitor_feishu_provider(
             monitor_single_account(
                 account=acct,
                 state_dir=state_dir,
+                dm_policy=dm_policy,
                 allowed_open_ids=allowed_open_ids,
             )
             for acct in accounts_list

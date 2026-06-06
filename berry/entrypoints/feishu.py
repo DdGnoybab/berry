@@ -25,18 +25,20 @@ import os
 from pathlib import Path
 from uuid import UUID
 
+from berry.channels.feishu import client as client_mod
+from berry.channels.feishu.approval_channel import FeishuApprovalChannel
 from berry.channels.feishu.monitor import monitor_feishu_provider
 from berry.channels.feishu.runtime import set_feishu_runtime
 from berry.channels.feishu.runtime_adapter import FeishuRuntimeAdapter
 from berry.channels.feishu.types import FeishuAccount, ResolvedFeishuAccount
-from berry.config import FeishuSettings, settings
+from berry.config import FeishuSettings
 from berry.core.db.repos.user_repo import UserRepo
 from berry.core.db.session import async_session_factory, engine
-from berry.observability.logging import configure_logging, get_logger
 
 # 复用 CLI 的 ConversationRuntime 装配 — 它已经把 LLM gateway / tool registry /
 # system prompt 都拼好了,飞书直接拿来用,行为一致(同一个 berry agent)。
-from berry.entrypoints.cli import _CliTurnRunner, _build_runtime
+from berry.entrypoints.cli import _build_runtime, _CliTurnRunner
+from berry.observability.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
 
@@ -86,12 +88,16 @@ async def _async_main() -> None:
         logger.error("feishu_credentials_missing")
         return
 
-    if not feishu_settings.allowed_open_ids:
+    if (
+        feishu_settings.dm_policy == "allowlist"
+        and not feishu_settings.allowed_open_ids
+    ):
         logger.warning(
             "feishu_allowlist_empty",
             note=(
-                "FEISHU_ALLOWED_OPEN_IDS 为空 — 所有 DM 都会被拒绝。"
-                "本地调试请把你自己的 open_id 加进 .env。"
+                "FEISHU_DM_POLICY=allowlist 但 FEISHU_ALLOWED_OPEN_IDS 为空 "
+                "— 所有 DM 都会被拒绝。把你自己的 open_id 加进 .env,或者把 "
+                "FEISHU_DM_POLICY 改成 open(默认)。"
             ),
         )
 
@@ -99,7 +105,15 @@ async def _async_main() -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
 
     user_id = await _seed_user()
-    runtime, system_prompt = _build_runtime()
+
+    # Wire FeishuApprovalChannel before _build_runtime so the runtime is built
+    # with it. ChatResolver is post-injected once the adapter exists (the
+    # adapter -> runner -> runtime -> channel chain would otherwise loop).
+    account = _build_account(feishu_settings)
+    lark_client = client_mod.create_http_client(account.account)
+    approval_channel = FeishuApprovalChannel(client=lark_client)
+
+    runtime, system_prompt = _build_runtime(approval_channel=approval_channel)
     runner = _CliTurnRunner(runtime, system_prompt)
 
     adapter = FeishuRuntimeAdapter(
@@ -107,15 +121,15 @@ async def _async_main() -> None:
         state_dir=state_dir,
         default_user_id=user_id,
     )
+    approval_channel.set_chat_resolver(adapter.chat_resolver)
     set_feishu_runtime(adapter)
-
-    account = _build_account(feishu_settings)
 
     logger.info(
         "feishu_entrypoint_starting",
         app_id=account.account.app_id,
         bot_name=account.account.bot_name,
         state_dir=str(state_dir),
+        dm_policy=feishu_settings.dm_policy,
         allowlist_size=len(feishu_settings.allowed_open_ids),
         user_id=str(user_id),
     )
@@ -124,6 +138,7 @@ async def _async_main() -> None:
         await monitor_feishu_provider(
             [account],
             state_dir=state_dir,
+            dm_policy=feishu_settings.dm_policy,
             allowed_open_ids=list(feishu_settings.allowed_open_ids),
         )
     finally:

@@ -19,6 +19,7 @@ from collections.abc import Callable
 
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
 
+from berry.channels.feishu import policy as policy_mod
 from berry.channels.feishu import sequential_key as seq_key_mod
 from berry.channels.feishu.bot import handle_feishu_message, parse_feishu_message_event
 from berry.channels.feishu.dedup import FeishuDedup
@@ -34,6 +35,7 @@ def create_message_receive_handler(
     account: ResolvedFeishuAccount,
     dedup: FeishuDedup,
     queue: SequentialQueue,
+    dm_policy: policy_mod.DmPolicy,
     allowed_open_ids: list[str],
     loop: asyncio.AbstractEventLoop,
 ) -> Callable[[P2ImMessageReceiveV1], None]:
@@ -80,6 +82,7 @@ def create_message_receive_handler(
                 key,
                 lambda: handle_feishu_message(
                     event,
+                    dm_policy=dm_policy,
                     allowed_open_ids=allowed_open_ids,
                 ),
             )

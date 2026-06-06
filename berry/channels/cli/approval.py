@@ -25,8 +25,10 @@ class CliApprovalChannel:
         tool_name: str,
         args: dict[str, Any],
         ctx: ToolContext,
+        reason: str | None = None,
     ) -> bool:
-        prompt = f"[approval] {tool_name}({_compact(args)}) 允许?[y/N] "
+        reason_part = f" — {reason}" if reason else ""
+        prompt = f"[approval]{reason_part} {tool_name}({_compact(args)}) 允许?[y/N] "
         try:
             answer = await asyncio.to_thread(input, prompt)
         except EOFError:

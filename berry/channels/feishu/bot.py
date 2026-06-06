@@ -151,6 +151,7 @@ def _strip_mentions_from_text(text: str, mentions: Iterable[object]) -> str:
 async def handle_feishu_message(
     event: FeishuMessageEvent,
     *,
+    dm_policy: policy_mod.DmPolicy,
     allowed_open_ids: list[str],
 ) -> None:
     """主流程:policy → conversation_id → run_turn → 发卡片。
@@ -167,8 +168,10 @@ async def handle_feishu_message(
     log.info("feishu_message_received")
 
     # 1. 准入
-    if not policy_mod.admit(event, allowed_open_ids=allowed_open_ids):
-        log.info("feishu_allowlist_block")
+    if not policy_mod.admit(
+        event, dm_policy=dm_policy, allowed_open_ids=allowed_open_ids,
+    ):
+        log.info("feishu_allowlist_block", dm_policy=dm_policy)
         return
 
     # 2. conversation_id
@@ -188,7 +191,12 @@ async def handle_feishu_message(
     # 3. 跑 LLM
     adapter = get_feishu_runtime()
     try:
-        final_text = await adapter.run_turn(conversation_id, event.text)
+        final_text = await adapter.run_turn(
+            conversation_id,
+            event.text,
+            chat_id=event.chat_id,
+            user_open_id=event.sender_open_id,
+        )
     except Exception as exc:
         # adapter 自己应该兜底返回错误文本;这里再加一道防线
         log.error(

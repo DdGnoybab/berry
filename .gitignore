@@ -74,3 +74,11 @@ reference/
 docs/
 # AI 协作约定(本地工程师用)
 CLAUDE.md
+/INTRO.md
+/quizzes/m1.1-q1.md
+/notes/m1.1-sds.md
+/scripts/manual_feishu_approval_test.md
+/PROGRESS.md
+/SESSION_LOG.md
+/test/asr.py
+/test/audio_example.wav

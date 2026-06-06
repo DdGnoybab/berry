@@ -13,6 +13,8 @@ from berry.core.agent.approval_registry import (
     get_approval_registry,
 )
 
+# pytest will pick up new tests below the existing ones automatically.
+
 
 @pytest.mark.asyncio
 async def test_register_returns_id_and_future() -> None:
@@ -96,3 +98,64 @@ def test_singleton_is_singleton() -> None:
     a = get_approval_registry()
     b = get_approval_registry()
     assert a is b
+
+
+@pytest.mark.asyncio
+async def test_attach_metadata_merges() -> None:
+    reg = ApprovalRegistry()
+    aid, _ = reg.register()
+    reg.attach_metadata(aid, {"message_id": "msg_1", "tool_name": "bash"})
+    reg.attach_metadata(aid, {"args": {"command": "ls"}})
+
+    meta = reg.get_metadata(aid)
+    assert meta == {
+        "message_id": "msg_1",
+        "tool_name": "bash",
+        "args": {"command": "ls"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_metadata_returns_copy() -> None:
+    reg = ApprovalRegistry()
+    aid, _ = reg.register()
+    reg.attach_metadata(aid, {"k": "v"})
+
+    snapshot = reg.get_metadata(aid)
+    snapshot["k"] = "MUTATED"
+    assert reg.get_metadata(aid) == {"k": "v"}
+
+
+@pytest.mark.asyncio
+async def test_get_metadata_unknown_returns_empty() -> None:
+    reg = ApprovalRegistry()
+    assert reg.get_metadata("appr_nope") == {}
+
+
+@pytest.mark.asyncio
+async def test_attach_metadata_unknown_raises() -> None:
+    reg = ApprovalRegistry()
+    with pytest.raises(ApprovalNotFoundError):
+        reg.attach_metadata("appr_nope", {"k": "v"})
+
+
+@pytest.mark.asyncio
+async def test_resolve_keeps_metadata() -> None:
+    """After resolve the metadata stays — handler still wants to read it."""
+    reg = ApprovalRegistry()
+    aid, _ = reg.register()
+    reg.attach_metadata(aid, {"message_id": "msg_1"})
+    reg.resolve(aid, approved=True)
+    assert reg.get_metadata(aid) == {"message_id": "msg_1"}
+
+
+@pytest.mark.asyncio
+async def test_cleanup_clears_metadata() -> None:
+    reg = ApprovalRegistry()
+    aid, _ = reg.register()
+    reg.attach_metadata(aid, {"k": "v"})
+    reg.cleanup(aid)
+    assert reg.get_metadata(aid) == {}
+    # cleanup also removes pending
+    with pytest.raises(ApprovalNotFoundError):
+        reg.attach_metadata(aid, {"k2": "v2"})

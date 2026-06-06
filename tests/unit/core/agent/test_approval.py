@@ -1,4 +1,4 @@
-"""Tests for ApprovalDecision + WhitelistPolicy.
+"""Tests for ApprovalDecision + PolicyVerdict + WhitelistPolicy.
 
 ApprovalChannel Protocol is tested at integration level when CLI / feishu
 implementations exist (Round 2/5). Here we cover only the policy.
@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from berry.core.agent.approval import (
     ApprovalDecision,
+    PolicyVerdict,
     WhitelistPolicy,
 )
 from berry.core.tools.base import ToolContext
@@ -28,20 +29,23 @@ def _ctx() -> ToolContext:
 
 def test_whitelist_policy_requires_approval_for_listed_tool() -> None:
     policy = WhitelistPolicy({"write_md", "edit_md"})
-    decision = policy.decide("write_md", {"filename": "x.md"}, _ctx())
-    assert decision is ApprovalDecision.REQUIRE_APPROVAL
+    verdict = policy.decide("write_md", {"filename": "x.md"}, _ctx())
+    assert verdict.decision is ApprovalDecision.REQUIRE_APPROVAL
+    assert verdict.reason is not None
+    assert "write_md" in verdict.reason
 
 
 def test_whitelist_policy_auto_allows_unlisted_tool() -> None:
     policy = WhitelistPolicy({"write_md"})
-    decision = policy.decide("read_md", {"id": "abc"}, _ctx())
-    assert decision is ApprovalDecision.AUTO_ALLOW
+    verdict = policy.decide("read_md", {"id": "abc"}, _ctx())
+    assert verdict.decision is ApprovalDecision.AUTO_ALLOW
+    assert verdict.reason is None
 
 
 def test_whitelist_policy_empty_set_allows_everything() -> None:
     policy = WhitelistPolicy(set())
-    decision = policy.decide("anything", {}, _ctx())
-    assert decision is ApprovalDecision.AUTO_ALLOW
+    verdict = policy.decide("anything", {}, _ctx())
+    assert verdict.decision is ApprovalDecision.AUTO_ALLOW
 
 
 def test_whitelist_policy_decisions_are_string_enum() -> None:
@@ -49,3 +53,12 @@ def test_whitelist_policy_decisions_are_string_enum() -> None:
     assert str(ApprovalDecision.REQUIRE_APPROVAL) == "require_approval"
     assert str(ApprovalDecision.AUTO_ALLOW) == "auto_allow"
     assert str(ApprovalDecision.AUTO_DENY) == "auto_deny"
+
+
+def test_policy_verdict_is_frozen() -> None:
+    v = PolicyVerdict(decision=ApprovalDecision.AUTO_ALLOW)
+    try:
+        v.reason = "x"  # type: ignore[misc]
+    except Exception:
+        return
+    raise AssertionError("PolicyVerdict should be frozen")

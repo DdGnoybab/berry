@@ -4,8 +4,15 @@ Flow:
   1. ConversationRuntime detects tool needs approval -> calls register(approval_id) to get Future
   2. ConversationRuntime triggers ApprovalChannel.ask() -> channel renders approval UI
      (CLI: stdin Y/n; Feishu: card buttons; Web: yields ApprovalAsked event in stream)
-  3. User responds -> channel handler calls resolve(approval_id, decision) -> Future completes
-  4. ConversationRuntime awaits Future -> gets decision, continues / rejects tool
+  3. Channel attaches metadata (e.g. message_id, tool_name, args) so the UI's
+     callback handler can later read these to render the resolved card without
+     keeping its own state.
+  4. User responds -> channel handler calls resolve(approval_id, decision) -> Future completes
+  5. ConversationRuntime awaits Future -> gets decision, continues / rejects tool
+  6. Channel's ``ask`` finally-block calls ``cleanup(approval_id)`` to release
+     both the future and the metadata. Note: ``resolve`` does NOT delete
+     metadata, because the UI callback handler may still need to read it
+     between resolve and cleanup.
 
 Single-process scope: MVP works with direct Future. Multi-process needs Redis pub/sub.
 """
@@ -15,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import secrets
 from dataclasses import dataclass
+from typing import Any
 
 
 class ApprovalAlreadyResolvedError(Exception):
@@ -43,6 +51,7 @@ class ApprovalRegistry:
 
     def __init__(self) -> None:
         self._pending: dict[str, asyncio.Future[ApprovalDecision]] = {}
+        self._metadata: dict[str, dict[str, Any]] = {}
 
     def generate_id(self) -> str:
         """Generate a new approval_id."""
@@ -64,7 +73,29 @@ class ApprovalRegistry:
             asyncio.get_event_loop().create_future()
         )
         self._pending[aid] = future
+        self._metadata[aid] = {}
         return aid, future
+
+    def attach_metadata(self, approval_id: str, data: dict[str, Any]) -> None:
+        """Merge ``data`` into this approval's metadata dict.
+
+        Channels stash ``message_id`` / ``tool_name`` / ``args`` here so the
+        card_action handler can read them when the user clicks a button.
+
+        Raises:
+            ApprovalNotFoundError: approval_id never registered or already cleaned up
+        """
+        if approval_id not in self._metadata:
+            raise ApprovalNotFoundError(approval_id)
+        self._metadata[approval_id].update(data)
+
+    def get_metadata(self, approval_id: str) -> dict[str, Any]:
+        """Return a *copy* of the metadata dict (safe to mutate by caller).
+
+        Returns ``{}`` if unknown — callers tolerate missing metadata
+        (e.g. handler fires after cleanup race).
+        """
+        return dict(self._metadata.get(approval_id, {}))
 
     def resolve(
         self,
@@ -74,6 +105,10 @@ class ApprovalRegistry:
         reason: str | None = None,
     ) -> None:
         """User decision unblocks the waiter.
+
+        Note: only the future is deleted; metadata is preserved so the UI
+        callback handler (running just after resolve) can read it. Caller is
+        responsible for ``cleanup`` once the metadata is no longer needed.
 
         Raises:
             ApprovalNotFoundError: approval_id does not exist
@@ -105,8 +140,9 @@ class ApprovalRegistry:
             return ApprovalDecision(approved=False, reason="approval timeout")
 
     def cleanup(self, approval_id: str) -> None:
-        """Remove from pending (call on timeout / cancel)."""
+        """Release both pending future and metadata. Idempotent."""
         self._pending.pop(approval_id, None)
+        self._metadata.pop(approval_id, None)
 
 
 # ─── Process-level singleton ────────────────────────────────

@@ -50,9 +50,38 @@ class FeishuRuntimeAdapter:
         self._runner = runner
         self._state_dir = state_dir
         self._default_user_id = default_user_id
+        # session_id → (chat_id, sender_open_id) — populated for the duration
+        # of one ``run_turn`` so that ``FeishuApprovalChannel`` can look up
+        # which chat to send the approval card to. Cleared in the finally
+        # block so a stale entry never leaks into another turn.
+        self._chat_context: dict[str, tuple[str, str]] = {}
 
-    async def run_turn(self, conversation_id: str, user_text: str) -> str:
+    def chat_resolver(
+        self, session_id: str,
+    ) -> tuple[str | None, str | None]:
+        """``session_id -> (chat_id, expected_user_open_id)``.
+
+        Returns ``(None, None)`` if the session is not currently in a
+        Feishu turn (e.g. CLI-only session).
+        """
+        return self._chat_context.get(session_id, (None, None))
+
+    async def run_turn(
+        self,
+        conversation_id: str,
+        user_text: str,
+        *,
+        chat_id: str,
+        user_open_id: str,
+    ) -> str:
         """跑一轮,返回最终给用户看的文本。
+
+        Args:
+            chat_id: Feishu chat that initiated this turn — passed through to
+                ``FeishuApprovalChannel.ask`` via ``chat_resolver`` so the
+                approval card lands in the same chat.
+            user_open_id: the sender's open_id; used to pin the approval card's
+                expected operator (only this user's clicks count).
 
         Returns:
             assistant 的 final text(已合并所有 TextDelta)。出错时返回一段
@@ -64,41 +93,47 @@ class FeishuRuntimeAdapter:
             user_id=self._default_user_id,
         )
         pre_count = len(session.messages)
+        self._chat_context[session.id] = (chat_id, user_open_id)
 
         text_buffer: list[str] = []
         try:
-            async for ev in self._runner.run_turn(session=session, user_text=user_text):
-                if isinstance(ev, TextDelta):
-                    text_buffer.append(ev.text)
-                elif isinstance(ev, ToolResult):
-                    # 工具结果不直接进飞书 — runtime 已经把它放进消息历史 / 下一轮上下文。
-                    # MVP 只从最终 assistant text 提取给用户看的内容。
-                    pass
-                elif isinstance(ev, TurnEnd):
-                    pass
-                # TurnStart / ApprovalAsked / ToolCallStart 在 MVP 不渲染 — 后续接
-                # streaming card / approval 卡片再用。
-        except Exception as exc:
-            logger.error(
-                "feishu_turn_failed",
-                conversation_id=conversation_id,
-                error_type=type(exc).__name__,
-                error=str(exc),
-                exc_info=True,
-            )
-            # 兜底持久化:即便出错,也把已写入 session.messages 的内容落盘
+            try:
+                async for ev in self._runner.run_turn(session=session, user_text=user_text):
+                    if isinstance(ev, TextDelta):
+                        text_buffer.append(ev.text)
+                    elif isinstance(ev, ToolResult):
+                        # 工具结果不直接进飞书 — runtime 已经把它放进消息历史 / 下一轮上下文。
+                        # MVP 只从最终 assistant text 提取给用户看的内容。
+                        pass
+                    elif isinstance(ev, TurnEnd):
+                        pass
+                    # TurnStart / ApprovalAsked / ToolCallStart 在 MVP 不渲染 — 后续接
+                    # streaming card / approval 卡片再用。
+            except Exception as exc:
+                logger.error(
+                    "feishu_turn_failed",
+                    conversation_id=conversation_id,
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                    exc_info=True,
+                )
+                # 兜底持久化:即便出错,也把已写入 session.messages 的内容落盘
+                self._persist_new(session, store, pre_count)
+                return f"berry 出错了:{type(exc).__name__}: {exc}"
+
+            # 把这轮新增的所有消息 append 到磁盘(参考 gateway/methods/turn.py 同款套路)
             self._persist_new(session, store, pre_count)
-            return f"berry 出错了:{type(exc).__name__}: {exc}"
 
-        # 把这轮新增的所有消息 append 到磁盘(参考 gateway/methods/turn.py 同款套路)
-        self._persist_new(session, store, pre_count)
-
-        # 把 buffer 里的 TextDelta 合起来作为返回值。
-        # 如果 buffer 为空(LLM 一句没说就 stop_reason),回退到 session 末尾
-        # 那条 assistant 消息的 text。
-        if text_buffer:
-            return _strip_or_fallback("".join(text_buffer))
-        return _extract_last_assistant_text(session) or "(berry 没有回复内容)"
+            # 把 buffer 里的 TextDelta 合起来作为返回值。
+            # 如果 buffer 为空(LLM 一句没说就 stop_reason),回退到 session 末尾
+            # 那条 assistant 消息的 text。
+            if text_buffer:
+                return _strip_or_fallback("".join(text_buffer))
+            return _extract_last_assistant_text(session) or "(berry 没有回复内容)"
+        finally:
+            # Always clear chat_context so a later approval click can't bind
+            # to a stale (chat_id, user_open_id) from a finished turn.
+            self._chat_context.pop(session.id, None)
 
     @staticmethod
     def _persist_new(

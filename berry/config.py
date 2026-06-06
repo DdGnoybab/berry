@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from dotenv import load_dotenv
 from pydantic import Field, SecretStr, field_validator
@@ -83,11 +84,20 @@ class FeishuSettings(BaseSettings):
     encrypt_key: SecretStr | None = None
     domain: str = "https://open.feishu.cn"
     bot_name: str = "berry"
+    dm_policy: Literal["open", "allowlist"] = Field(
+        default="open",
+        description=(
+            "DM 准入策略,对齐 openclaw `dmPolicy`:"
+            "`open`(默认)放行所有 DM;"
+            "`allowlist` 只放行 `FEISHU_ALLOWED_OPEN_IDS` 里的 open_id。"
+        ),
+    )
     allowed_open_ids: list[str] = Field(
         default_factory=list,
         description=(
             "DM allowlist. 逗号分隔的飞书 open_id 列表(如 'ou_a,ou_b')。"
-            "为空时拒绝所有 DM(MVP 默认严格模式,避免被陌生人触发 LLM 调用)。"
+            "仅当 dm_policy='allowlist' 时生效;"
+            "open 模式下此字段被忽略(可留空)。"
         ),
     )
 
