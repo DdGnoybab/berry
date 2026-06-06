@@ -57,10 +57,13 @@ async def monitor_single_account(
         loop=loop,
     )
 
-    def _card_action_handler(raw: object) -> None:
+    def _card_action_handler(raw: object) -> object:
         # `raw` is lark's P2CardActionTrigger; closure captures account_id +
         # http_client so handle_card_action can patch the card.
-        handle_card_action(http_client, raw, account_id=account_id)
+        # MUST return the P2CardActionTriggerResponse — returning None makes
+        # lark synthesize an empty response that Feishu treats as "revert
+        # the card", undoing our update_card_by_message patch.
+        return handle_card_action(http_client, raw, account_id=account_id)
 
     dispatcher = (
         builder
