@@ -1,19 +1,19 @@
 """主编排:把一条飞书事件 → AgentEvent stream → outbound 卡片。
 
-对齐 openclaw `extensions/feishu/src/bot.ts`(MVP 简化版):
+对齐 openclaw `extensions/feishu/src/bot.ts`(berry 简化版):
 - `parse_feishu_message_event(raw)` — SDK 事件 → 归一化 dataclass
-- `handle_feishu_message(event, context)` — 主流程,每个事件跑一次
+- `handle_feishu_message(event, context)` — 主流程,DM + 群聊统一入口
 
-不做的:
-- 群聊处理(policy.admit 直接拒)
+不做的(后续按需 PR):
 - streaming card
-- 审批卡片
-- @mention 解析(MVP DM 用不到,但留了 mention.id.open_id 抽取代码)
+- broadcast / dynamic agent
+- topic / thread 会话
+- merge_forward / 引用 / 群历史窗口 / sender 显示名解析
 
 外部依赖通过参数注入,不直接 import singleton:
 - HTTP client 由 `monitor_state.get_http_client(account_id)` 取
 - runtime adapter 由 `runtime.get_feishu_runtime()` 取
-- allowlist 由 caller 传入
+- allowlist / bot_open_id / group_allow_from 由 caller 传入
 
 调用方:`monitor_message.create_message_receive_handler` 在解事件 + dedup +
 入队后,在 sequential queue 内部把 event 喂给 `handle_feishu_message`。
@@ -153,15 +153,23 @@ async def handle_feishu_message(
     *,
     dm_policy: policy_mod.DmPolicy,
     allowed_open_ids: list[str],
+    bot_open_id: str | None = None,
+    group_allow_from: list[str] | None = None,
 ) -> None:
     """主流程:policy → conversation_id → run_turn → 发卡片。
 
     每条进入这里的事件都已经 dedup + 在 sequential queue 内部跑了。
     出错只记日志 + 给用户回个错误提示文本,不 raise(raise 会污染队列链)。
+
+    Args:
+        bot_open_id: bot 自身 open_id,群聊 @ 检测用;空 → 群聊全拒。
+        group_allow_from: 群白名单 chat_id;空 → 群聊禁用。DM 不受影响。
     """
+    group_allow_from = group_allow_from or []
     log = logger.bind(
         account_id=event.account_id,
         chat_id=event.chat_id,
+        chat_type=event.chat_type.value,
         sender_open_id=event.sender_open_id,
         message_id=event.message_id,
     )
@@ -169,9 +177,13 @@ async def handle_feishu_message(
 
     # 1. 准入
     if not policy_mod.admit(
-        event, dm_policy=dm_policy, allowed_open_ids=allowed_open_ids,
+        event,
+        dm_policy=dm_policy,
+        allowed_open_ids=allowed_open_ids,
+        bot_open_id=bot_open_id,
+        group_allow_from=group_allow_from,
     ):
-        log.info("feishu_allowlist_block", dm_policy=dm_policy)
+        log.info("feishu_admit_block", dm_policy=dm_policy)
         return
 
     # 2. conversation_id
@@ -188,14 +200,23 @@ async def handle_feishu_message(
     log = log.bind(conversation_id=conversation_id)
     log.info("feishu_turn_started")
 
+    # 群聊:全群一个 session,LLM 必须能区分谁说的 — 给文本加 sender 标签前缀。
+    # DM 不需要(会话已经按 sender 切)。对齐 openclaw `buildFeishuAgentBody`
+    # 的 `${speaker}: ${body}` 思路,简化:直接用 open_id,不查 sender 显示名。
+    is_group = event.chat_type == FeishuChatType.GROUP
+    user_text_for_runtime = (
+        f"[sender:{event.sender_open_id}] {event.text}" if is_group else event.text
+    )
+
     # 3. 跑 LLM
     adapter = get_feishu_runtime()
     try:
         final_text = await adapter.run_turn(
             conversation_id,
-            event.text,
+            user_text_for_runtime,
             chat_id=event.chat_id,
             user_open_id=event.sender_open_id,
+            trigger_message_id=event.message_id,
         )
     except Exception as exc:
         # adapter 自己应该兜底返回错误文本;这里再加一道防线
@@ -209,16 +230,23 @@ async def handle_feishu_message(
 
     log.info("feishu_turn_completed", final_text_chars=len(final_text))
 
-    # 4. 出站
+    # 4. 出站 — 群聊 reply 到触发消息,DM 直接 create
+    reply_to = event.message_id if is_group else None
     client = get_http_client(event.account_id)
     ok = send_mod.send_card_markdown(
         client,
         chat_id=event.chat_id,
         markdown=final_text,
+        reply_to_message_id=reply_to,
     )
     if not ok:
         # 卡片失败兜底纯文本(罕见,但万一卡片 schema 抽风)
-        send_mod.send_text(client, chat_id=event.chat_id, text=final_text)
+        send_mod.send_text(
+            client,
+            chat_id=event.chat_id,
+            text=final_text,
+            reply_to_message_id=reply_to,
+        )
 
 
 # ---- testing helpers ------------------------------------------------------

@@ -100,8 +100,24 @@ class FeishuSettings(BaseSettings):
             "open 模式下此字段被忽略(可留空)。"
         ),
     )
+    bot_open_id: str = Field(
+        default="",
+        description=(
+            "Bot 自身 open_id,群聊 @ 检测必需。空 → 群聊整体禁用(DM 不受影响)。"
+            "启动前用 lark 控制台 / API 查一次粘进 .env。"
+            "对齐 openclaw `ResolvedFeishuAccount.botOpenId`,简化:不做启动期自动解析。"
+        ),
+    )
+    group_allow_from: list[str] = Field(
+        default_factory=list,
+        description=(
+            "群聊白名单 chat_id 列表(逗号分隔,如 'oc_a,oc_b')。"
+            "只有列表内的 chat_id 才会触发群聊会话;空列表 → 群聊禁用。"
+            "对齐 openclaw `groupAllowFrom`,简化:不做 per-group sender allowlist。"
+        ),
+    )
 
-    @field_validator("allowed_open_ids", mode="before")
+    @field_validator("allowed_open_ids", "group_allow_from", mode="before")
     @classmethod
     def _split_csv(cls, v: object) -> object:
         # pydantic-settings 默认 list 期望 JSON;允许 'ou_a,ou_b' 这种 csv 写法。

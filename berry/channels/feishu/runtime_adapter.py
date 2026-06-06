@@ -50,21 +50,28 @@ class FeishuRuntimeAdapter:
         self._runner = runner
         self._state_dir = state_dir
         self._default_user_id = default_user_id
-        # session_id → (chat_id, sender_open_id) — populated for the duration
-        # of one ``run_turn`` so that ``FeishuApprovalChannel`` can look up
-        # which chat to send the approval card to. Cleared in the finally
-        # block so a stale entry never leaks into another turn.
-        self._chat_context: dict[str, tuple[str, str]] = {}
+        # session_id → (chat_id, sender_open_id, trigger_message_id) — populated
+        # for the duration of one ``run_turn`` so that ``FeishuApprovalChannel``
+        # can look up which chat to send the approval card to *and* reply
+        # the card under the original trigger message in group chats.
+        # Cleared in the finally block so a stale entry never leaks into
+        # another turn.
+        self._chat_context: dict[str, tuple[str, str, str]] = {}
 
     def chat_resolver(
         self, session_id: str,
-    ) -> tuple[str | None, str | None]:
-        """``session_id -> (chat_id, expected_user_open_id)``.
+    ) -> tuple[str | None, str | None, str | None]:
+        """``session_id -> (chat_id, expected_user_open_id, trigger_message_id)``.
 
-        Returns ``(None, None)`` if the session is not currently in a
+        Returns ``(None, None, None)`` if the session is not currently in a
         Feishu turn (e.g. CLI-only session).
+
+        ``trigger_message_id`` is the message_id of the user message that
+        kicked this turn off; ``FeishuApprovalChannel`` uses it to reply
+        the approval card under the trigger in group chats. DM also uses
+        it (cards reply to the trigger DM); harmless either way.
         """
-        return self._chat_context.get(session_id, (None, None))
+        return self._chat_context.get(session_id, (None, None, None))
 
     async def run_turn(
         self,
@@ -73,6 +80,7 @@ class FeishuRuntimeAdapter:
         *,
         chat_id: str,
         user_open_id: str,
+        trigger_message_id: str,
     ) -> str:
         """跑一轮,返回最终给用户看的文本。
 
@@ -82,6 +90,8 @@ class FeishuRuntimeAdapter:
                 approval card lands in the same chat.
             user_open_id: the sender's open_id; used to pin the approval card's
                 expected operator (only this user's clicks count).
+            trigger_message_id: 触发本轮的用户消息 ID,审批卡片 reply 到它,
+                让卡片紧跟触发消息(群聊关键,DM 也安全)。
 
         Returns:
             assistant 的 final text(已合并所有 TextDelta)。出错时返回一段
@@ -93,7 +103,7 @@ class FeishuRuntimeAdapter:
             user_id=self._default_user_id,
         )
         pre_count = len(session.messages)
-        self._chat_context[session.id] = (chat_id, user_open_id)
+        self._chat_context[session.id] = (chat_id, user_open_id, trigger_message_id)
 
         text_buffer: list[str] = []
         try:

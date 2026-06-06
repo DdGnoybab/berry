@@ -26,6 +26,9 @@ from lark_oapi.api.im.v1 import (
     PatchMessageRequest,
     PatchMessageRequestBody,
     PatchMessageResponse,
+    ReplyMessageRequest,
+    ReplyMessageRequestBody,
+    ReplyMessageResponse,
 )
 
 from berry.observability.logging import get_logger
@@ -89,29 +92,73 @@ def _create_message(
     return client.im.v1.message.create(req)
 
 
+def _reply_message(
+    client: lark.Client,
+    *,
+    message_id: str,
+    msg_type: str,
+    content: str,
+    reply_in_thread: bool = False,
+) -> ReplyMessageResponse:
+    """走飞书 `POST /open-apis/im/v1/messages/:message_id/reply`。
+
+    群聊出站用,挂在触发消息下面;``reply_in_thread=False`` 让回复留在主聊天
+    视图,避免被推进 topic thread。
+    """
+    body = (
+        ReplyMessageRequestBody.builder()
+        .msg_type(msg_type)
+        .content(content)
+        .reply_in_thread(reply_in_thread)
+        .build()
+    )
+    req = (
+        ReplyMessageRequest.builder()
+        .message_id(message_id)
+        .request_body(body)
+        .build()
+    )
+    return client.im.v1.message.reply(req)
+
+
 def send_text(
     client: lark.Client,
     *,
     chat_id: str,
     text: str,
+    reply_to_message_id: str | None = None,
 ) -> bool:
     """发纯文本到 chat_id。返回 True 表示 SDK 报告成功。
 
     失败只记日志,不 raise — 上层是 dispatcher 回调,raise 出去会污染
     sequential queue;让用户在飞书侧看不到回复 + 服务端日志能查就够。
+
+    Args:
+        reply_to_message_id: 非空时走 reply API,把消息挂在原消息下面
+            (群聊形态);None 走 create API(DM 形态)。
     """
+    content = _build_text_content(text)
     try:
-        resp = _create_message(
-            client,
-            receive_id=chat_id,
-            receive_id_type="chat_id",
-            msg_type="text",
-            content=_build_text_content(text),
-        )
+        if reply_to_message_id is None:
+            resp: CreateMessageResponse | ReplyMessageResponse = _create_message(
+                client,
+                receive_id=chat_id,
+                receive_id_type="chat_id",
+                msg_type="text",
+                content=content,
+            )
+        else:
+            resp = _reply_message(
+                client,
+                message_id=reply_to_message_id,
+                msg_type="text",
+                content=content,
+            )
     except Exception as exc:
         logger.error(
             "feishu_send_text_failed",
             chat_id=chat_id,
+            reply_to_message_id=reply_to_message_id,
             error_type=type(exc).__name__,
             error=str(exc),
             exc_info=True,
@@ -121,6 +168,7 @@ def send_text(
         logger.error(
             "feishu_send_text_api_error",
             chat_id=chat_id,
+            reply_to_message_id=reply_to_message_id,
             code=resp.code,
             msg=resp.msg,
         )
@@ -134,25 +182,39 @@ def send_card_markdown(
     chat_id: str,
     markdown: str,
     header_title: str | None = "berry",
+    reply_to_message_id: str | None = None,
 ) -> bool:
     """发 markdown 卡片到 chat_id。
 
     LLM 给的纯文本就是 markdown 输入(claude / deepseek 默认输出 md);
     所以「直接塞进卡片 element」就够。
+
+    Args:
+        reply_to_message_id: 非空时 reply 到原消息(群聊形态);
+            None 走 create(DM 形态)。
     """
     content = _build_markdown_card(markdown, header_title=header_title)
     try:
-        resp = _create_message(
-            client,
-            receive_id=chat_id,
-            receive_id_type="chat_id",
-            msg_type="interactive",
-            content=content,
-        )
+        if reply_to_message_id is None:
+            resp: CreateMessageResponse | ReplyMessageResponse = _create_message(
+                client,
+                receive_id=chat_id,
+                receive_id_type="chat_id",
+                msg_type="interactive",
+                content=content,
+            )
+        else:
+            resp = _reply_message(
+                client,
+                message_id=reply_to_message_id,
+                msg_type="interactive",
+                content=content,
+            )
     except Exception as exc:
         logger.error(
             "feishu_send_card_failed",
             chat_id=chat_id,
+            reply_to_message_id=reply_to_message_id,
             error_type=type(exc).__name__,
             error=str(exc),
             exc_info=True,
@@ -162,6 +224,7 @@ def send_card_markdown(
         logger.error(
             "feishu_send_card_api_error",
             chat_id=chat_id,
+            reply_to_message_id=reply_to_message_id,
             code=resp.code,
             msg=resp.msg,
         )
@@ -174,25 +237,39 @@ def send_approval_card(
     *,
     chat_id: str,
     card_json: str,
+    reply_to_message_id: str | None = None,
 ) -> str | None:
     """Send a pre-built interactive card. Returns the new ``message_id`` so the
     caller can later patch the card to a resolved state. None on failure.
 
     ``card_json`` is the full Feishu card content string (typically built by
     ``card_ux_approval.build_approval_card``).
+
+    Args:
+        reply_to_message_id: 非空时 reply 到触发消息(群聊形态),让卡片紧
+            跟用户的 @ 触发;None 走 create(DM 形态)。
     """
     try:
-        resp = _create_message(
-            client,
-            receive_id=chat_id,
-            receive_id_type="chat_id",
-            msg_type="interactive",
-            content=card_json,
-        )
+        if reply_to_message_id is None:
+            resp: CreateMessageResponse | ReplyMessageResponse = _create_message(
+                client,
+                receive_id=chat_id,
+                receive_id_type="chat_id",
+                msg_type="interactive",
+                content=card_json,
+            )
+        else:
+            resp = _reply_message(
+                client,
+                message_id=reply_to_message_id,
+                msg_type="interactive",
+                content=card_json,
+            )
     except Exception as exc:
         logger.error(
             "feishu_send_approval_card_failed",
             chat_id=chat_id,
+            reply_to_message_id=reply_to_message_id,
             error_type=type(exc).__name__,
             error=str(exc),
             exc_info=True,
@@ -202,6 +279,7 @@ def send_approval_card(
         logger.error(
             "feishu_send_approval_card_api_error",
             chat_id=chat_id,
+            reply_to_message_id=reply_to_message_id,
             code=resp.code,
             msg=resp.msg,
         )
@@ -210,6 +288,7 @@ def send_approval_card(
         logger.error(
             "feishu_send_approval_card_missing_message_id",
             chat_id=chat_id,
+            reply_to_message_id=reply_to_message_id,
         )
         return None
     return resp.data.message_id
@@ -266,12 +345,22 @@ def send_invalid_notice(
     *,
     chat_id: str,
     reason: InvalidNoticeReason,
+    reply_to_message_id: str | None = None,
 ) -> bool:
     """Send a plain-text notice when a card_action validation fails.
 
     Mirrors openclaw ``sendInvalidInteractionNotice``: a 1-line warning that
     explains why the click was rejected so the user knows whether to retry
     or wait.
+
+    Args:
+        reply_to_message_id: 非空时 reply 到错卡片(群聊里点错卡时让提示
+            紧跟错卡,不污染主线)。
     """
     text = _INVALID_NOTICE_TEXT[reason]
-    return send_text(client, chat_id=chat_id, text=f"⚠️ {text}")
+    return send_text(
+        client,
+        chat_id=chat_id,
+        text=f"⚠️ {text}",
+        reply_to_message_id=reply_to_message_id,
+    )
