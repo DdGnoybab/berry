@@ -36,8 +36,9 @@ from berry.core.agent.approval import (
 )
 from berry.core.agent.compaction import (
     CompactionConfig,
-    compact_session,
-    estimate_session_tokens,
+    apply_compaction_pipeline,
+    estimate_tokens,
+    reactive_compact,
 )
 from berry.core.agent.hook import (
     HookRunner,
@@ -137,8 +138,18 @@ class ConversationRuntime:
         )
 
         rounds_since_todo = 0
+        reactive_retries = 0
 
         for _ in range(self._max_inner_loops):
+            # ─── 四层压缩管线（每轮 LLM 调用前） ───
+            session.messages = list(apply_compaction_pipeline(
+                list(session.messages),
+                CompactionConfig(
+                    auto_compact_threshold=self._auto_compact_threshold,
+                    persist_dir=_cwd_default() / ".berry",
+                ),
+            )[0])
+
             # Nag reminder: inject if todo_write hasn't been called for a while.
             if self._todo_nag_rounds > 0 and rounds_since_todo >= self._todo_nag_rounds:
                 if _has_pending_todos(ctx.cwd):
@@ -181,9 +192,6 @@ class ConversationRuntime:
             )
             assistant_msg = LlmMessage(role="assistant", content=response.content)
             session.push_message(assistant_msg)
-
-            # 4b. Auto compaction check — prevent unbounded session growth
-            self._maybe_auto_compact(session)
 
             # 5. Did the LLM ask to call tools?
             tool_uses = [
@@ -309,22 +317,6 @@ class ConversationRuntime:
             output=strip_surrogates(output),
             is_error=False,
         )
-
-    def _maybe_auto_compact(self, session: AgentSession) -> None:
-        """Check if session exceeds token threshold and compact if needed."""
-        estimated = estimate_session_tokens(list(session.messages))
-        if estimated < self._auto_compact_threshold:
-            return
-
-        result = compact_session(
-            list(session.messages),
-            CompactionConfig(max_estimated_tokens=0),
-        )
-
-        if result.removed_message_count == 0:
-            return
-
-        session.messages = result.compacted_messages
 
 
 # ─── helpers ────────────────────────────────────────────────────────────
