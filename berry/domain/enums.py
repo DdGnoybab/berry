@@ -24,3 +24,4 @@ class MessageRole(StrEnum):
 class Channel(StrEnum):
     FEISHU = "feishu"
     CLI = "cli"
+    WEB = "web"

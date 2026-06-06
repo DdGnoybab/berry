@@ -342,6 +342,7 @@ def discover_memory_entries(cwd: Path) -> list[tuple[str, str]]:
 
     Memory files live in ``{data_root}/memory/``.
     """
+    from berry.config import settings
     from berry.core.tools.memory.store import MemoryStore
 
     memory_dir = settings.data_root / "memory"

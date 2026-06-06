@@ -47,6 +47,46 @@ DEFAULT_USER_HANDLE = "default"
 DEFAULT_STATE_DIR = Path.home() / ".berry"
 
 
+def _resolve_workspace_path() -> Path | None:
+    """Resolve the learning workspace.
+
+    Resolution order:
+      1. ``BERRY_LEARNING_WORKSPACE`` env var (explicit override)
+      2. cwd — same convention as claw-code's ``cd <project> && claw``
+
+    Disabled when cwd is the berry repo itself (detected via the presence of
+    ``berry/__init__.py``) — running ``uv run berry-feishu`` from inside the
+    berry source tree shouldn't accidentally turn berry's own checkout into
+    a learning workspace.
+
+    Local mode: user ``cd ~/learning/redis`` then runs berry-feishu.
+    Cloud mode (MVP): operator deploys with ``BERRY_LEARNING_WORKSPACE``
+    pointing at the per-deploy workspace dir; multi-user / per-topic
+    isolation is a V2 concern (see ``docs/berry-L-design.md``).
+    """
+    override = os.environ.get("BERRY_LEARNING_WORKSPACE")
+    if override:
+        p = Path(override).expanduser()
+        if not p.is_dir():
+            logger.warning(
+                "feishu_learning_workspace_missing",
+                path=str(p),
+                note="BERRY_LEARNING_WORKSPACE points at a non-existent dir; learning skill disabled.",
+            )
+            return None
+        return p
+
+    cwd = Path.cwd()
+    if (cwd / "berry" / "__init__.py").is_file() and (cwd / "pyproject.toml").is_file():
+        logger.info(
+            "feishu_learning_workspace_skipped_repo_root",
+            cwd=str(cwd),
+            note="cwd looks like the berry repo itself; learning skill disabled. cd into a learning workspace, or set BERRY_LEARNING_WORKSPACE.",
+        )
+        return None
+    return cwd
+
+
 async def _seed_user() -> UUID:
     async with async_session_factory() as db:
         user = await UserRepo(db).get_or_create_by_handle(
@@ -138,19 +178,55 @@ async def _async_main() -> None:
     lark_client = client_mod.create_http_client(account.account)
     approval_channel = FeishuApprovalChannel(client=lark_client)
 
-    runtime, system_prompt = _build_runtime(approval_channel=approval_channel)
+    workspace_path = _resolve_workspace_path()
+
+    # Initialize the learning workspace before building the runtime so that
+    # the LLM's first turn can already read LEARNER.md / progress.json /
+    # ROADMAP.md. Also syncs the packaged SKILL.md to ~/.berry/skills/learning/
+    # so the `skill` tool can resolve `skill="learning"`.
+    if workspace_path is not None:
+        from berry.assistants.learning.init_workspace import init_learning_workspace
+        init_learning_workspace(workspace_path)
+
+    # Inject a fixed-cwd resolver so file tools write into the learning
+    # workspace, not into the process cwd (relevant when running berry
+    # from the source tree but pointing the LLM at a learning workspace
+    # via BERRY_LEARNING_WORKSPACE).
+    cwd_resolver = (lambda _sid: workspace_path) if workspace_path else None
+
+    runtime, system_prompt = _build_runtime(
+        approval_channel=approval_channel,
+        cwd_resolver=cwd_resolver,
+    )
+
+    # Append the learning persona + bootstrap instruction to the system prompt
+    # so the LLM (a) knows it's running in learning mode, (b) loads SKILL.md
+    # via the `skill` tool on its first turn before doing anything else.
+    if workspace_path is not None:
+        system_prompt = _augment_system_prompt_for_learning(system_prompt, workspace_path)
+
     runner = _CliTurnRunner(runtime, system_prompt)
 
     adapter = FeishuRuntimeAdapter(
         runner=runner,
         state_dir=state_dir,
         default_user_id=user_id,
+        workspace_path=workspace_path,
     )
     approval_channel.set_chat_resolver(adapter.chat_resolver)
     set_feishu_runtime(adapter)
 
     # 注册 todo 事件监听器 — todo_write 执行后飞书发进度卡片
     _register_todo_listener(adapter, lark_client, account.account.account_id)
+
+    # 注册 learning SUGGEST 监听器 — LLM 写新 SUGGEST 到 progress.json 后,
+    # 飞书发出建议卡片让用户选下一步。仅在 workspace_path 解析成功时启用。
+    if workspace_path is not None:
+        _register_learning_suggest_listener(adapter, lark_client)
+        logger.info(
+            "feishu_learning_skill_enabled",
+            workspace_path=str(workspace_path),
+        )
 
     logger.info(
         "feishu_entrypoint_starting",
@@ -207,6 +283,128 @@ def _register_todo_listener(
         )
 
     register_todo_listener(_on_todo_updated)
+
+
+def _augment_system_prompt_for_learning(base_prompt: str, workspace_path: Path) -> str:
+    """Append the learning persona + bootstrap instruction to the system prompt.
+
+    Three things get added:
+      1. The persona (``berry/assistants/learning/prompts/system.md``) — defines
+         the assistant as berry-L, lays out the iron law, etc.
+      2. LEARNER.md content from the workspace, if present — the user's profile.
+      3. A hard bootstrap instruction telling the LLM to invoke the ``learning``
+         skill via the ``skill`` tool on its first turn — this loads SKILL.md
+         and makes the state machine rules active.
+
+    Without (3), the LLM sees the persona but doesn't know it MUST follow the
+    state machine — it'll improvise. So this is the linchpin that connects
+    the prompt to the SKILL.md rules.
+    """
+    parts: list[str] = [base_prompt]
+
+    # 1. persona
+    persona_path = (
+        Path(__file__).parent.parent / "assistants" / "learning" / "prompts" / "system.md"
+    )
+    if persona_path.is_file():
+        try:
+            parts.append("\n\n" + persona_path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            logger.warning(
+                "learning_persona_read_failed",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
+    # 2. LEARNER.md (if present)
+    learner_md = workspace_path / "LEARNER.md"
+    if learner_md.is_file():
+        try:
+            content = learner_md.read_text(encoding="utf-8").strip()
+            if content:
+                parts.append(
+                    "\n\n# Learner Profile (loaded from workspace LEARNER.md)\n\n"
+                    + content
+                )
+        except OSError as exc:
+            logger.warning(
+                "learner_md_read_failed",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
+    # 3. bootstrap instruction (the linchpin)
+    parts.append(
+        "\n\n# Learning Mode (ACTIVE)\n\n"
+        "This workspace is configured for the berry-L learning assistant.\n\n"
+        "**On EVERY turn**, your FIRST tool call MUST be invoking the `skill` "
+        "tool with `skill=\"learning\"` to load the state machine rules. "
+        "Treat the loaded SKILL.md as a HARD CONTRACT — its instructions "
+        "override any default behavior you would otherwise apply.\n\n"
+        "Do NOT skip this step \"because you remember the rules\" — the file "
+        "is the source of truth, conversation memory is not. Read it every turn."
+    )
+    return "".join(parts)
+
+
+def _register_learning_suggest_listener(
+    adapter: FeishuRuntimeAdapter,
+    lark_client: object,
+) -> None:
+    """Register the learning skill's SUGGEST listener.
+
+    When ``progress_watcher`` notices a new ``current.last_suggestion`` after
+    a turn, render a SUGGEST card and send it as a reply under the user's
+    triggering message.
+    """
+    from berry.assistants.learning.cards import build_suggest_card
+    from berry.assistants.learning.progress_watcher import (
+        SuggestEmittedEvent,
+        get_default_watcher,
+    )
+    from berry.channels.feishu import send as send_mod
+
+    def _on_suggest(event: SuggestEmittedEvent) -> None:
+        chat_id, user_open_id, trigger_message_id = adapter.chat_resolver(
+            event.conversation_id
+        )
+        if not chat_id:
+            logger.debug(
+                "feishu_suggest_skipped_no_chat",
+                conversation_id=event.conversation_id,
+            )
+            return
+        sg = event.suggestion
+        atom_label = event.atom or "?"
+        try:
+            card_json = build_suggest_card(
+                suggestion_id=sg.get("suggestion_id", "sg_unknown"),
+                atom_label=atom_label,
+                context=sg.get("context", "post_assess"),
+                score=sg.get("score"),
+                weak_points=sg.get("weak_points") or [],
+                options=sg.get("options") or [],
+                extra_note=sg.get("extra_note"),
+                sub_menu=sg.get("sub_menu"),
+                user_open_id=user_open_id,
+                chat_id=chat_id,
+            )
+        except Exception as exc:  # noqa: BLE001 — bad suggestion shape shouldn't crash listener
+            logger.warning(
+                "feishu_suggest_card_build_failed",
+                conversation_id=event.conversation_id,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            return
+        send_mod.send_approval_card(
+            lark_client,
+            chat_id=chat_id,
+            card_json=card_json,
+            reply_to_message_id=trigger_message_id,
+        )
+
+    get_default_watcher().register_listener(_on_suggest)
 
 
 if __name__ == "__main__":

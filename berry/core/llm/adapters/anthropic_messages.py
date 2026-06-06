@@ -109,8 +109,16 @@ class AnthropicMessagesAdapter:
                         "is_error": b.is_error,
                     })
 
-            if blocks:
-                out.append({"role": msg.role, "content": blocks})
+            # CRITICAL: don't silently drop messages whose blocks were all
+            # filtered out (e.g. an assistant message that only contained a
+            # ThinkingBlock). Dropping shifts subsequent message indices and
+            # breaks tool_use ↔ tool_result pairing — Anthropic then rejects
+            # the request with `tool_result has no matching tool_use`.
+            # Insert a non-empty placeholder so the message position is
+            # preserved (Anthropic also rejects empty-text blocks).
+            if not blocks:
+                blocks.append({"type": "text", "text": "(placeholder)"})
+            out.append({"role": msg.role, "content": blocks})
 
         return out
 

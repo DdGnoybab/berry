@@ -20,7 +20,7 @@ graph framework. ~300 lines, single file, every decision visible.
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Protocol
@@ -92,6 +92,7 @@ class ConversationRuntime:
         max_inner_loops: int = 20,
         auto_compact_threshold: int = 100_000,
         todo_nag_rounds: int = 3,
+        cwd_resolver: Callable[[str], Path] | None = None,
     ) -> None:
         self._gateway = llm_gateway
         self._tools = tool_registry
@@ -103,6 +104,7 @@ class ConversationRuntime:
         self._max_inner_loops = max_inner_loops
         self._auto_compact_threshold = auto_compact_threshold
         self._todo_nag_rounds = todo_nag_rounds
+        self._cwd_resolver = cwd_resolver
 
     async def run_turn(
         self,
@@ -128,13 +130,14 @@ class ConversationRuntime:
         yield agent_events.TurnStart(session_id=session.id)
 
         log_repo = LlmLogRepo(db)
+        cwd = self._cwd_resolver(session.id) if self._cwd_resolver else _cwd_default()
         ctx = ToolContext(
             session_id=session.id,
             user_id=session.user_id,
             goal_id=None,
             db=db,
             data_root=_data_root_default(),
-            cwd=_cwd_default(),
+            cwd=cwd,
         )
 
         rounds_since_todo = 0
@@ -149,7 +152,7 @@ class ConversationRuntime:
                 list(session.messages),
                 CompactionConfig(
                     auto_compact_threshold=self._auto_compact_threshold,
-                    persist_dir=_cwd_default() / ".berry",
+                    persist_dir=cwd / ".berry",
                 ),
             )[0])
 
@@ -165,9 +168,17 @@ class ConversationRuntime:
                     ))
                 rounds_since_todo = 0
 
+            # Last-chance tool-pairing sanitize before the API call. Compaction
+            # passes (snip / micro / auto) can cut a tool_use → tool_result
+            # pair across their kept-window boundary, leaving a tool_result
+            # whose tool_use isn't in the request anymore (or vice versa).
+            # Anthropic 400s on this. Strip the orphans here so the wire
+            # request is always self-consistent.
+            request_messages = _strip_unpaired_tool_blocks(list(session.messages))
+
             request = LlmRequest(
                 model=self._model_id,
-                messages=list(session.messages),
+                messages=request_messages,
                 system=system_prompt,
                 tools=self._tools.schemas() or None,
                 stream=True,
@@ -440,6 +451,51 @@ def _stream_event_to_agent_event(
         # Channels that need full args should listen for ToolResult instead.
         return agent_events.ToolCallStart(id=ev.id, name=ev.name, args={})
     return None
+
+
+def _strip_unpaired_tool_blocks(messages: list[LlmMessage]) -> list[LlmMessage]:
+    """Strip orphan tool_use / tool_result blocks from a message list.
+
+    Used as a last-chance sanitize right before sending to the LLM provider.
+    Anthropic rejects requests where a ``tool_result`` has no matching
+    ``tool_use`` earlier in messages (and vice versa), and any number of
+    code paths can produce that state — interrupted streams, compaction
+    boundaries cutting through pairs, manually-edited session files, etc.
+
+    Algorithm:
+      1. Forward pass: collect tool_use ids and tool_result ids.
+      2. Drop tool_result blocks whose tool_use_id wasn't seen.
+      3. Drop tool_use blocks with no later tool_result.
+      4. If a message becomes empty, drop the message.
+    """
+    use_ids: set[str] = set()
+    result_ids: set[str] = set()
+    for msg in messages:
+        for block in msg.content:
+            if isinstance(block, ToolUseBlock):
+                use_ids.add(block.id)
+            elif isinstance(block, ToolResultBlock):
+                result_ids.add(block.tool_use_id)
+
+    orphan_results = result_ids - use_ids
+    dangling_uses = use_ids - result_ids
+    if not orphan_results and not dangling_uses:
+        return messages
+
+    out: list[LlmMessage] = []
+    for msg in messages:
+        new_blocks = [
+            b
+            for b in msg.content
+            if not (isinstance(b, ToolUseBlock) and b.id in dangling_uses)
+            and not (
+                isinstance(b, ToolResultBlock)
+                and b.tool_use_id in orphan_results
+            )
+        ]
+        if new_blocks:
+            out.append(LlmMessage(role=msg.role, content=new_blocks))
+    return out
 
 
 def _cwd_default() -> Path:

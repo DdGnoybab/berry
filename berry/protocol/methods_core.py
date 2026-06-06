@@ -100,6 +100,11 @@ class DeletedResult(BaseModel):
     deleted: bool
 
 
+class ResetResult(BaseModel):
+    cleared: bool
+    items_cleared: list[str]
+
+
 # ─── session.* ──────────────────────────────────────────
 
 
@@ -247,6 +252,13 @@ class LlmCallDetail(BaseModel):
     response: dict[str, Any]
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
+
+
+# ─── learning.* ─────────────────────────────────────────
+
+
+class LearningResetParams(BaseModel):
+    project_id: UUID
 
 
 # ─── 核心 method 字典 ──────────────────────────────────
@@ -412,5 +424,13 @@ CORE_METHODS: dict[str, MethodSpec] = {
         params_schema=LlmCallDetailParams,
         result_schema=LlmCallDetail,
         description="Full request/response for an LLM call.",
+    ),
+
+    # learning
+    "learning.reset": MethodSpec(
+        name="learning.reset",
+        params_schema=LearningResetParams,
+        result_schema=ResetResult,
+        description="Clear all learning data (sessions, memory, todos, progress) for a fresh start.",
     ),
 }

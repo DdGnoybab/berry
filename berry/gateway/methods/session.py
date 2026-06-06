@@ -20,7 +20,9 @@ from berry.protocol.errors import ErrorCode, ProtocolError
 from berry.protocol.methods_core import (
     CORE_METHODS,
     DeletedResult,
+    LearningResetParams,
     MessageEnvelope,
+    ResetResult,
     SessionCreateParams,
     SessionDeleteParams,
     SessionDetail,
@@ -201,9 +203,60 @@ async def delete(
     return DeletedResult(deleted=True)
 
 
+async def learning_reset(
+    params: LearningResetParams, ctx: CallContext
+) -> ResetResult:
+    """Clear all learning data for a fresh start."""
+    project = await _get_owned_project(params.project_id, ctx)
+    svc = ProjectService(settings.data_root)
+    cleared: list[str] = []
+
+    # 1. Delete all sessions
+    sessions_dir = svc.sessions_dir(project)
+    if sessions_dir.exists():
+        count = len(list(sessions_dir.iterdir()))
+        shutil.rmtree(sessions_dir)
+        sessions_dir.mkdir(exist_ok=True)
+        cleared.append(f"{count} sessions")
+
+    # 2. Clear workspace-level learning files
+    ws = svc.workspace_path(project)
+    for name in ("INTERVIEW.md", "ROADMAP.md"):
+        p = ws / name
+        if p.exists():
+            p.unlink()
+            cleared.append(name)
+
+    modules_dir = ws / "modules"
+    if modules_dir.exists():
+        shutil.rmtree(modules_dir)
+        cleared.append("modules/")
+
+    berry_dir = ws / ".berry"
+    if berry_dir.exists():
+        shutil.rmtree(berry_dir)
+        cleared.append(".berry/")
+
+    # 3. Clear global memory
+    memory_dir = settings.data_root / "memory"
+    if memory_dir.exists():
+        for f in memory_dir.iterdir():
+            f.unlink()
+        cleared.append("memory")
+
+    # 4. Clear global todos
+    todos_path = Path.cwd() / ".berry" / "todos.json"
+    if todos_path.exists():
+        todos_path.unlink()
+        cleared.append("todos")
+
+    return ResetResult(cleared=True, items_cleared=cleared)
+
+
 def register(registry: MethodRegistry) -> None:
     registry.register(CORE_METHODS["session.list"], list_sessions)  # type: ignore[arg-type]
     registry.register(CORE_METHODS["session.create"], create)  # type: ignore[arg-type]
     registry.register(CORE_METHODS["session.detail"], detail)  # type: ignore[arg-type]
     registry.register(CORE_METHODS["session.messages"], messages)  # type: ignore[arg-type]
     registry.register(CORE_METHODS["session.delete"], delete)  # type: ignore[arg-type]
+    registry.register(CORE_METHODS["learning.reset"], learning_reset)  # type: ignore[arg-type]

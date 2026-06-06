@@ -24,10 +24,22 @@ On EVERY turn, before any user-facing output, you MUST:
 Skipping step 1 is the #1 way this skill silently breaks across sessions. Always read.
 </HARD-GATE>
 
+<HARD-GATE-2>
+**When you want to present options to the user (any SUGGEST / 确认 / 选择场景), you MUST call the `present_options` tool.** Do NOT type numbered lists. The tool renders clickable buttons in the UI. This applies to:
+- Every SUGGEST stage (post_probe / post_teach / post_assess)
+- Init flow: 目标选择、资料核对、路线图确认、atom 确认
+- Any time you ask the user to pick from 2+ choices
+
+The only exception: simple binary yes/no questions (「继续?」) — those can be plain text.
+
+**CRITICAL: `present_options` must be the LAST action in your turn.** After calling the tool, do NOT add any more text. The tool output IS your complete response. If you call the tool and then type more text, the buttons will be hidden by your text and the user won't see them.
+</HARD-GATE-2>
+
 ## The Iron Law
 
 ```
 THE LLM EVALUATES AND SUGGESTS. THE USER PICKS. THE USER ALWAYS PICKS.
+OPTIONS MUST BE PRESENTED VIA THE present_options TOOL, NOT AS TEXT.
 ```
 
 There are exactly **4 automatic transitions** with no user input required:
@@ -108,16 +120,17 @@ If `.berry/progress.json` does not exist:
 
 1. Detect topic from workspace name (e.g. workspace `redis/` → topic `redis`).
 2. Check if user message states a goal explicitly (keywords: "面试" "interview" "深入掌握" "了解一下"). If yes, skip step 3.
-3. Ask once: 「你的目标是?① 简单了解 ② 准备面试(默认) ③ 深入掌握」 — single message, wait for answer.
-4. Once goal known, ask: 「你有面试题文件想上传吗?(发文件 / 贴链接 / 跳过让我搜)」.
+3. Use `present_options` tool to ask goal: 「你的目标是?」 with options: `简单了解` / `准备面试(推荐)` / `深入掌握`.
+4. Once goal known, use `present_options` tool to ask: 「你有面试题文件想参考吗?」 with options: `发文件` / `贴链接` / `跳过让我搜`.
 5. After user replies:
    - If user provides material: `write_file INTERVIEW.md` from it.
    - If user says "搜": call `WebSearch` 1-3 times for `<topic> 高频面试题` / `<topic> interview questions`, then `write_file INTERVIEW.md` aggregated and deduped.
-6. Build ROADMAP from INTERVIEW.md — 5-8 modules ordered by **dependency** (not appearance order). `write_file ROADMAP.md`.
-7. Show ROADMAP, ask user to add/remove/reorder modules.
-8. After user confirms, write initial `.berry/progress.json` with `macro_state: MODULE_INTRO` for module 01.
-9. Show module 01 atoms (4-8), ask user to confirm or adjust.
-10. After confirmation, enter ATOM_LOOP for atom 01-a1, **automatically** start PROBING.
+6. **资料核对**: Show a summary of the organized content (模块列表 + 每个模块的核心知识点). Use `present_options` tool to ask: 「这是我整理的资料,要调整吗?」 with options: `没问题,继续` / `要补充` / `要删减` / `要调整顺序`. Wait for user. **Do NOT skip this step.**
+7. After user confirms the content, build ROADMAP from INTERVIEW.md — 5-8 modules ordered by **dependency** (not appearance order). `write_file ROADMAP.md`.
+8. Show ROADMAP. Use `present_options` tool to ask: 「路线图这样可以吗?」 with options: `确认,开始学习` / `要调整模块` / `增减内容`. Wait for user.
+9. After user confirms, write initial `.berry/progress.json` with `macro_state: MODULE_INTRO` for module 01.
+10. Show module 01 atoms (4-8). Use `present_options` tool to ask: 「这个模块的知识点拆分,要调整吗?」 with options: `没问题` / `要调整`.
+11. After confirmation, enter ATOM_LOOP for atom 01-a1, **automatically** start PROBING.
 
 ## §2 macro state transitions
 
@@ -144,6 +157,23 @@ IDLE → GOAL_ASK → COLLECT_TOPICS → PLAN_REVIEW → MODULE_INTRO
 ## §4 the SUGGEST stage (the heart of this skill)
 
 When transitioning into SUGGEST after PROBING / TEACHING / ASSESSING:
+
+### CRITICAL: use present_options tool
+
+**Every time you enter SUGGEST, you MUST call the `present_options` tool** to present options as clickable buttons in the UI. Do NOT just type numbered lists. The tool renders buttons that the user can click, and their click arrives as their next message.
+
+Example tool call:
+```
+present_options({
+  "suggestion_id": "sg_mod1_a1_post_probe",
+  "context": "post_probe",
+  "prompt": "你想怎么继续？",
+  "options": [
+    {"key": "teach_full", "label": "完整讲解", "recommended": true},
+    {"key": "skip_teach", "label": "直接测", "recommended": false}
+  ]
+})
+```
 
 ### what to produce
 
@@ -331,9 +361,10 @@ When in PROBING / ASSESSING:
 - **Self-check before each question**: "Does this matter under the user's goal?" If "not really" → swap.
 
 ### question framing discipline
-- Do NOT include hints in the question stem (unless user explicitly asks for hint)
+- **NEVER include hints, clues, or括号提示 in the question stem.** No "(提示：xxx)", no "(想想xxx)", no parenthetical guidance. The question must stand on its own. User must think without your help. The ONLY exception is when user explicitly says "给个提示".
 - Do NOT immediately reveal the answer when user is wrong — point at which part is off, let them retry once
 - If multiple choice / true-false, show the options/T/F clearly
+- Questions must be **bare** — just the question, nothing else. Example of WRONG: "Redis 单线程怎么做到并发？(提示：IO 多路复用)" → CORRECT: "Redis 是单线程的，那它怎么同时处理多个客户端的请求？"
 
 ### scoring (give a number AND a reason — never just a number)
 
@@ -485,6 +516,8 @@ If you reply first then write state, a session interruption between the two desy
 | "User said 跳过 but I think they need this atom" | Don't argue. Mark needs_review. Move on. |
 | "I'll add a 7th option to be helpful" | Trim to 4-6. Options inflate fast and overwhelm |
 | "User skipped review, I'll grumble about it" | Don't. Mark and continue. Trust the user. |
+| "I'll just type the options as a numbered list" | **MUST use `present_options` tool.** Numbered lists don't render as buttons. |
+| "I'll call present_options then explain more" | **STOP after the tool call.** No text after present_options. Buttons get hidden by text. |
 
 ## §15 when this skill ends
 

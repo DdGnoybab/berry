@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -42,6 +42,7 @@ from berry.core.tools.core import (
     BashTool,
     GlobSearchTool,
     GrepSearchTool,
+    PresentOptionsTool,
     SkillTool,
     TodoReadTool,
     TodoWriteTool,
@@ -67,7 +68,9 @@ DEMO_PROJECT_NAME = "cli-demo"
 
 
 def _build_runtime(
-    *, approval_channel: ApprovalChannel | None = None,
+    *,
+    approval_channel: ApprovalChannel | None = None,
+    cwd_resolver: Callable[[str], Path] | None = None,
 ) -> tuple[ConversationRuntime, str]:
     """Construct ConversationRuntime + system prompt from config files.
 
@@ -75,6 +78,9 @@ def _build_runtime(
         approval_channel: optional override; defaults to ``CliApprovalChannel``.
             Feishu entrypoint passes ``FeishuApprovalChannel`` here so that the
             same business-agnostic runtime can serve both channels.
+        cwd_resolver: optional ``session_id -> Path`` callable. Feishu passes
+            one (per-user, per-active-topic learning workspaces). CLI omits it,
+            falling back to ``Path.cwd()``.
 
     Returns (runtime, system_prompt) — the CLI passes system_prompt to run_turn
     so ConversationRuntime stays business-agnostic.
@@ -106,6 +112,7 @@ def _build_runtime(
             TodoWriteTool(),
             TodoReadTool(),
             SkillTool(),
+            PresentOptionsTool(),
             MemoryReadTool(),
             MemoryWriteTool(),
         ]
@@ -120,6 +127,7 @@ def _build_runtime(
         approval_channel=channel,
         db_session_factory=async_session_factory,
         model_id="main",
+        cwd_resolver=cwd_resolver,
     )
 
     system_prompt = build_default_system_prompt(cwd=Path.cwd())

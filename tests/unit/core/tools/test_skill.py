@@ -128,7 +128,10 @@ def test_list_available_skills(tmp_path: Path) -> None:
     assert "gamma" not in available
 
 
-def test_list_available_skills_empty(tmp_path: Path) -> None:
+def test_list_available_skills_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Sandbox HOME so the user's ~/.berry/skills/ doesn't bleed into test
+    # results (e.g. when berry-feishu has been run, learning is installed there).
+    monkeypatch.setenv("HOME", str(tmp_path / "fake_home"))
     available = _list_available_skills(tmp_path)
     assert available == []
 

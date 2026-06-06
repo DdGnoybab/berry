@@ -46,10 +46,15 @@ class FeishuRuntimeAdapter:
         runner: TurnRunner,
         state_dir: Path,
         default_user_id: UUID,
+        workspace_path: Path | None = None,
     ) -> None:
         self._runner = runner
         self._state_dir = state_dir
         self._default_user_id = default_user_id
+        # Single learning workspace — every conversation routes here.
+        # Local mode: cwd. Cloud MVP: BERRY_LEARNING_WORKSPACE env on the deploy.
+        # V2 multi-user / multi-topic: replace with a per-session resolver.
+        self._workspace_path = workspace_path
         # session_id → (chat_id, sender_open_id, trigger_message_id) — populated
         # for the duration of one ``run_turn`` so that ``FeishuApprovalChannel``
         # can look up which chat to send the approval card to *and* reply
@@ -57,6 +62,11 @@ class FeishuRuntimeAdapter:
         # Cleared in the finally block so a stale entry never leaks into
         # another turn.
         self._chat_context: dict[str, tuple[str, str, str]] = {}
+        # Most recent (chat_id, user_open_id, trigger_message_id) seen by a
+        # real turn — used as the reply target when an injected synthetic turn
+        # (from a card click) needs a chat to send into. Survives outside an
+        # in-flight run_turn, unlike _chat_context.
+        self._last_chat_for_session: dict[str, tuple[str, str, str]] = {}
 
     def chat_resolver(
         self, session_id: str,
@@ -70,8 +80,29 @@ class FeishuRuntimeAdapter:
         kicked this turn off; ``FeishuApprovalChannel`` uses it to reply
         the approval card under the trigger in group chats. DM also uses
         it (cards reply to the trigger DM); harmless either way.
+
+        Falls back to the LAST seen chat for this session if the session
+        isn't currently mid-turn — needed by the SUGGEST listener and
+        by ``inject_synthetic_turn`` so card-click follow-ups still know
+        which chat to write into.
         """
-        return self._chat_context.get(session_id, (None, None, None))
+        live = self._chat_context.get(session_id)
+        if live:
+            return live
+        last = self._last_chat_for_session.get(session_id)
+        if last:
+            return last
+        return (None, None, None)
+
+    @property
+    def workspace_path(self) -> Path | None:
+        """Single-workspace mode: where ``.berry/progress.json`` lives.
+
+        ``None`` means learning skill is disabled this run (no workspace
+        resolved at startup) — file tools fall back to the runtime's
+        ``_cwd_default()`` behavior.
+        """
+        return self._workspace_path
 
     async def run_turn(
         self,
@@ -104,6 +135,10 @@ class FeishuRuntimeAdapter:
         )
         pre_count = len(session.messages)
         self._chat_context[session.id] = (chat_id, user_open_id, trigger_message_id)
+        # Remember the chat for this session beyond the turn lifetime so the
+        # SUGGEST card listener (fires post-turn) and inject_synthetic_turn
+        # (fires from a card click outside any turn) can still find it.
+        self._last_chat_for_session[session.id] = (chat_id, user_open_id, trigger_message_id)
 
         text_buffer: list[str] = []
         try:
@@ -134,6 +169,11 @@ class FeishuRuntimeAdapter:
             # 把这轮新增的所有消息 append 到磁盘(参考 gateway/methods/turn.py 同款套路)
             self._persist_new(session, store, pre_count)
 
+            # learning skill: reconcile progress.json after the turn so that
+            # any new SUGGEST the LLM wrote to .berry/progress.json fires its
+            # event listener (which renders the SUGGEST card to feishu).
+            self._reconcile_progress_after_turn(session.id)
+
             # 把 buffer 里的 TextDelta 合起来作为返回值。
             # 如果 buffer 为空(LLM 一句没说就 stop_reason),回退到 session 末尾
             # 那条 assistant 消息的 text。
@@ -144,6 +184,57 @@ class FeishuRuntimeAdapter:
             # Always clear chat_context so a later approval click can't bind
             # to a stale (chat_id, user_open_id) from a finished turn.
             self._chat_context.pop(session.id, None)
+
+    def _reconcile_progress_after_turn(self, session_id: str) -> None:
+        if self._workspace_path is None:
+            return
+        try:
+            from berry.assistants.learning.progress_watcher import get_default_watcher
+
+            get_default_watcher().reconcile(
+                conversation_id=session_id,
+                workspace_path=self._workspace_path,
+            )
+        except Exception as exc:  # noqa: BLE001 — listener pipeline is fire-and-forget
+            logger.warning(
+                "feishu_progress_reconcile_failed",
+                session_id=session_id,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+
+    async def inject_synthetic_turn(
+        self,
+        *,
+        conversation_id: str,
+        user_text: str,
+    ) -> str:
+        """Run a turn whose user input was synthesized by a SUGGEST card click.
+
+        Looks up the most recent ``(chat_id, user_open_id, trigger_message_id)``
+        for ``conversation_id`` (set by the user's last real turn) and replays
+        ``run_turn`` with the click-derived text. Used by ``card_action.py``
+        when the user picks a SUGGEST option — we don't have a real Feishu
+        message to attribute it to.
+
+        Returns the assistant's reply text (caller decides whether to send
+        it back to the chat as a follow-up message).
+        """
+        last = self._last_chat_for_session.get(conversation_id)
+        if last is None:
+            logger.warning(
+                "feishu_inject_synthetic_no_chat_context",
+                conversation_id=conversation_id,
+            )
+            return "(berry: 找不到上次的会话上下文,直接打字告诉我吧)"
+        chat_id, user_open_id, trigger_message_id = last
+        return await self.run_turn(
+            conversation_id,
+            user_text,
+            chat_id=chat_id,
+            user_open_id=user_open_id,
+            trigger_message_id=trigger_message_id,
+        )
 
     @staticmethod
     def _persist_new(

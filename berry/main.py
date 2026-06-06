@@ -10,10 +10,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from berry import __version__
 from berry.core.db.session import engine
 from berry.gateway.http.health import router as health_router
+from berry.gateway.http.rpc import router as rpc_router
 from berry.observability.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -23,6 +25,15 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """app 生命周期钩子:启动时初始化,关闭时清理。"""
     logger.info("berry_starting", version=__version__)
+
+    # Web 入口:在 uvicorn 事件循环内装配 method registry
+    try:
+        from berry.entrypoints.web import web_setup
+
+        await web_setup()
+    except ImportError:
+        pass  # 非 web 入口(如 CLI)不需要
+
     yield
     logger.info("berry_stopping")
     # 关闭 DB 连接池
@@ -44,8 +55,18 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # CORS — 允许前端 dev server 跨域访问
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://localhost:3000"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     # 路由注册
     app.include_router(health_router)
+    app.include_router(rpc_router)
 
     return app
 
