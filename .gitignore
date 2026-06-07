@@ -17,8 +17,12 @@ venv/
 env/
 # 真实凭证不要进 git
 .env
+.env.local
+.env.production
+.env.*.local
 # 模板可以进 git
 !.env.example
+!deploy/env.production.example
 
 # MCP 服务器配置带真实 token,绝不进 git(同 .env 思路)
 .mcp.json

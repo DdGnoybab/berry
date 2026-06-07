@@ -1,0 +1,46 @@
+# 让 docker build 的 context 尽量小
+
+.git
+.gitignore
+.venv
+venv
+env
+
+# 真凭证绝不进镜像
+.env
+.env.local
+.env.production
+
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+build
+dist
+
+# 前端 build 走另一个 Dockerfile,不影响后端镜像
+web/node_modules
+web/dist
+
+# 本地数据 / 日志
+data
+logs
+*.log
+
+# IDE
+.idea
+.vscode
+.DS_Store
+
+# 文档 / 测试不进生产镜像
+docs
+notes
+quizzes
+test
+tests
+reference
+SESSION_LOG.md
+PROGRESS.md
+
+# 已存在的 dockerfile 副产物
+deploy/*.local

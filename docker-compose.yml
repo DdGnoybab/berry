@@ -1,0 +1,85 @@
+# Berry 部署编排。
+#
+# 起停:
+#   docker compose up -d              # 启动 berry + postgres + web(默认)
+#   docker compose --profile redis up -d   # 加上 redis
+#   docker compose down               # 停(数据卷保留)
+#   docker compose logs -f berry      # 看日志
+#
+# 第一次部署:
+#   1. cp deploy/env.production.example .env.production && 改里面的 key
+#   2. docker compose up -d --build
+#   3. docker compose exec berry alembic upgrade head    # 跑迁移
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: berry-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: berry
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: berry
+    volumes:
+      - berry_pgdata:/var/lib/postgresql/data
+    # 不暴露端口到宿主公网,只 compose 内网可见
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U berry -d berry"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  berry:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: berry:latest
+    container_name: berry-app
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      # 覆盖 .env.production 里的 DATABASE_URL,确保指向 compose 内的 postgres
+      DATABASE_URL: postgresql://berry:${POSTGRES_PASSWORD}@postgres:5432/berry
+      LOG_FORMAT: json
+      BERRY_DEV: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # 持久化 berry 自家数据(笔记 / projects / sessions)
+      - berry_data:/app/data
+    expose:
+      - "8000"
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    image: berry-web:latest
+    container_name: berry-web
+    restart: unless-stopped
+    depends_on:
+      - berry
+    ports:
+      # 唯一暴露到公网的端口
+      - "80:80"
+
+  redis:
+    # 默认不启;`docker compose --profile redis up -d` 才拉起来
+    profiles: ["redis"]
+    image: redis:7-alpine
+    container_name: berry-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - berry_redisdata:/data
+    expose:
+      - "6379"
+
+volumes:
+  berry_pgdata:
+  berry_data:
+  berry_redisdata:
