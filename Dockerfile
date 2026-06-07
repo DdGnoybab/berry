@@ -11,12 +11,14 @@
 FROM python:3.12-slim AS builder
 
 # uv 是 berry 的依赖管理工具(pyproject.toml + uv.lock)
-COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
+# 用 pip 装(走 PyPI 国内镜像),不走 ghcr.io —— 国内访问 GitHub Container Registry 慢
+RUN pip install --no-cache-dir -i https://mirrors.tencent.com/pypi/simple/ uv==0.5.11
 
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never \
-    UV_PROJECT_ENVIRONMENT=/app/.venv
+    UV_PROJECT_ENVIRONMENT=/app/.venv \
+    UV_INDEX_URL=https://mirrors.tencent.com/pypi/simple/
 
 WORKDIR /app
 
