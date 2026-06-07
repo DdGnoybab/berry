@@ -53,7 +53,29 @@ class ModelRegistry:
         return [m for m in snap.models if m.kind == kind]
 
     def get_fallback_chain(self, model_id: str) -> list[str]:
-        """V1 用:返回 [primary, fallback1, ...];Batch 1 直接返回 [primary]。"""
+        """返回 ``model_id`` 的 fallback 链(不含 ``model_id`` 自身)。
+
+        ``model_id`` 既支持真实 model id 也支持 alias,内部统一 resolve。
+        ``ModelsConfig.fallback`` 的 key 应该是真实 id;通过 alias 查询时,
+        会先把 alias 解析成真实 id,再去查链。
+
+        Returns:
+            按顺序的备用 model id 列表。没配返回空列表。
+
+        示例:
+
+            yaml 里:
+                aliases: { main: deepseek-anthropic }
+                fallback:
+                  deepseek-anthropic: [anthropic-claude, deepseek-chat]
+
+            registry.get_fallback_chain("main")
+                → ["anthropic-claude", "deepseek-chat"]
+            registry.get_fallback_chain("deepseek-anthropic")
+                → ["anthropic-claude", "deepseek-chat"]
+            registry.get_fallback_chain("anthropic-claude")
+                → []
+        """
         snap = self._require_snapshot()
         real_id = snap.aliases.get(model_id, model_id)
-        return snap.fallback.get(real_id, [real_id])
+        return list(snap.fallback.get(real_id, []))

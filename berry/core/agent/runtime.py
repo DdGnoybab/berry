@@ -40,6 +40,7 @@ from berry.core.agent.compaction import (
     estimate_tokens,
     reactive_compact,
 )
+from berry.core.agent.error_recovery import RetryingStreamCall
 from berry.core.agent.hook import (
     HookRunner,
     HookVerdictAction,
@@ -61,7 +62,10 @@ from berry.core.llm.types import (
     ToolUseBlock,
 )
 from berry.core.tools.base import ToolContext
+from berry.observability.logging import get_logger
 from berry.utils.unicode import strip_surrogates
+
+logger = get_logger(__name__)
 
 
 class DbSessionFactory(Protocol):
@@ -142,7 +146,11 @@ class ConversationRuntime:
         )
 
         rounds_since_todo = 0
-        reactive_retries = 0
+        # Turn-local LLM retry / fallback state. Each turn starts fresh so a
+        # transient overload that triggered fallback last turn doesn't keep us
+        # off the primary model — see Q8 in the design doc.
+        current_model = self._model_id
+        fallback_chain = self._gateway.registry.get_fallback_chain(self._model_id)
         # When the LLM types a numbered list of options without calling
         # ask_user_question, we set this for the NEXT inner loop iteration
         # to inject a corrective system-reminder. See
@@ -214,22 +222,47 @@ class ConversationRuntime:
             request_messages = _strip_unpaired_tool_blocks(list(session.messages))
 
             request = LlmRequest(
-                model=self._model_id,
+                model=current_model,
                 messages=request_messages,
                 system=system_prompt,
                 tools=self._tools.schemas() or None,
                 stream=True,
             )
 
-            # 3. Stream the LLM call; emit AgentEvents in lock-step; accumulate
-            #    the full response so we can persist it after the stream ends.
-            accumulator = StreamAccumulator(model_id=self._model_id)
-            async for stream_ev in self._gateway.stream(self._model_id, request):
+            # 3. Stream the LLM call (with retry/fallback shell);
+            #    accumulate the full response for post-stream persistence.
+            #
+            # See berry/core/agent/error_recovery.py:RetryingStreamCall and
+            # docs/superpowers/specs/2026-06-07-llm-error-recovery-design.md.
+            retry_call = RetryingStreamCall(
+                gateway=self._gateway,
+                request=request,
+                initial_model=current_model,
+                fallback_chain=fallback_chain,
+            )
+            # Defer accumulator creation until first event so its model_id
+            # reflects the model that actually answered (post-fallback).
+            accumulator: StreamAccumulator | None = None
+            async for stream_ev in retry_call.run():
+                if accumulator is None:
+                    accumulator = StreamAccumulator(model_id=retry_call.model_used)
                 accumulator.feed(stream_ev)
                 forwarded = _stream_event_to_agent_event(stream_ev)
                 if forwarded is not None:
                     yield forwarded
 
+            # Reflect any fallback that took place: subsequent inner-loop
+            # iterations stay on the model that actually answered, and the
+            # fallback chain only contains entries we haven't burned yet.
+            current_model = retry_call.model_used
+            fallback_chain = retry_call.remaining_chain
+
+            if accumulator is None:
+                # No events at all — should not happen on a successful stream
+                # (every provider yields at least MessageStart), but be defensive.
+                raise RuntimeError(
+                    f"LLM stream completed with no events on model={current_model!r}"
+                )
             response = accumulator.build_response()
 
             # 4. Persist: llm_call_logs + push assistant message
@@ -237,7 +270,7 @@ class ConversationRuntime:
                 user_id=session.user_id,
                 project_id=None,
                 session_id=session.id,  # already a string
-                model=self._model_id,
+                model=current_model,
                 request=request.model_dump(),
                 response=response.model_dump(),
             )

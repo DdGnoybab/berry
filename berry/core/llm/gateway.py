@@ -33,6 +33,11 @@ class ModelGateway:
         self._registry = registry
         self._adapters = adapters
 
+    @property
+    def registry(self) -> ModelRegistry:
+        """暴露 registry 供调用方查询元信息(如 fallback chain)。"""
+        return self._registry
+
     def _resolve(self, model_id: str) -> tuple[Adapter, "ModelEntry"]:  # type: ignore[name-defined]  # noqa: F821
         """model_id → (adapter, entry)。"""
         entry = self._registry.get(model_id)
