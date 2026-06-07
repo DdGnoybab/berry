@@ -26,11 +26,15 @@ RUN python -m venv /app/.venv && \
 
 # 一次性拷源码并装 —— berry 依赖列表很短,
 # 拆分 layer 带来的缓存收益不大,简单优先。
-COPY pyproject.toml README.md ./
+COPY pyproject.toml readme.md ./
 COPY berry ./berry
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY config ./config
+
+# pyproject.toml 里 readme 写的是大写 README.md,Linux 大小写敏感会找不到 →
+# 装之前临时把小写软链成大写,装完即弃。这是 berry 自己历史遗留命名问题。
+RUN ln -s readme.md README.md
 
 # 装项目 + 依赖(不装 dev group)
 RUN --mount=type=cache,target=/root/.cache/pip \
