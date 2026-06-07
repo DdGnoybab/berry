@@ -10,31 +10,31 @@
 # ───── Stage 1: builder ─────
 FROM python:3.12-slim AS builder
 
-# uv 是 berry 的依赖管理工具(pyproject.toml + uv.lock)
-# 用 pip 装(走 PyPI 国内镜像),不走 ghcr.io —— 国内访问 GitHub Container Registry 慢
-RUN pip install --no-cache-dir -i https://mirrors.tencent.com/pypi/simple/ uv==0.5.11
-
-ENV UV_LINK_MODE=copy \
-    UV_COMPILE_BYTECODE=1 \
-    UV_PYTHON_DOWNLOADS=never \
-    UV_PROJECT_ENVIRONMENT=/app/.venv \
-    UV_INDEX_URL=https://mirrors.tencent.com/pypi/simple/
+# 全程走腾讯云 PyPI 镜像(国内访问稳)。
+# 用 pip 而不是 uv:berry 的依赖列表里没有 torch / nvidia 这种大包,
+# pip 装够快,且在国内镜像下行为最稳。
+ENV PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple/ \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    VIRTUAL_ENV=/app/.venv \
+    PATH=/app/.venv/bin:$PATH
 
 WORKDIR /app
 
-# 先只拷依赖描述,利用 docker layer cache:
-# 代码改动不会触发依赖重装
-COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
+# 创建 venv,跟 uv sync 产出形状一致(/app/.venv)
+RUN python -m venv /app/.venv && \
+    /app/.venv/bin/pip install --upgrade pip
 
-# 再拷源码并把项目本身装进 venv
+# 一次性拷源码并装 —— berry 依赖列表很短,
+# 拆分 layer 带来的缓存收益不大,简单优先。
+COPY pyproject.toml README.md ./
 COPY berry ./berry
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY config ./config
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+
+# 装项目 + 依赖(不装 dev group)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install .
 
 
 # ───── Stage 2: runtime ─────
