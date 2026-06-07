@@ -39,10 +39,10 @@ from berry.core.llm.gateway import ModelGateway
 from berry.core.llm.registry import ModelRegistry
 from berry.core.project.service import ProjectService
 from berry.core.tools.core import (
+    AskUserQuestionTool,
     BashTool,
     GlobSearchTool,
     GrepSearchTool,
-    PresentOptionsTool,
     SkillTool,
     TodoReadTool,
     TodoWriteTool,
@@ -112,7 +112,7 @@ def _build_runtime(
             TodoWriteTool(),
             TodoReadTool(),
             SkillTool(),
-            PresentOptionsTool(),
+            AskUserQuestionTool(),
             MemoryReadTool(),
             MemoryWriteTool(),
         ]
@@ -141,12 +141,38 @@ def _build_runtime(
 class _CliTurnRunner:
     """Wraps ConversationRuntime to satisfy TurnRunner Protocol.
 
-    Holds the system_prompt and passes it through on each turn.
+    Holds the base system_prompt + an optional ``cwd_resolver`` so we
+    can recompute the workspace each turn and augment the prompt with
+    learning persona / LEARNER.md / bootstrap when the active project
+    is a learning workspace. See ``core/skills/learning_persona.py``.
+
+    The augmentation is per-turn (not per-process) because in the web
+    channel one process serves many Projects — Redis vs LangGraph have
+    different LEARNER.md contents and Pn one might not be a learning
+    project at all.
     """
 
-    def __init__(self, runtime: ConversationRuntime, system_prompt: str) -> None:
+    def __init__(
+        self,
+        runtime: ConversationRuntime,
+        system_prompt: str,
+        *,
+        cwd_resolver: Callable[[str], Path] | None = None,
+    ) -> None:
         self._runtime = runtime
-        self._system_prompt = system_prompt
+        self._base_system_prompt = system_prompt
+        self._cwd_resolver = cwd_resolver
+
+    def _system_prompt_for(self, session_id: str) -> str:
+        if self._cwd_resolver is None:
+            return self._base_system_prompt
+        from berry.core.skills.learning_persona import augment_system_prompt
+
+        try:
+            workspace = self._cwd_resolver(session_id)
+        except Exception:  # noqa: BLE001 — resolver should never break a turn
+            return self._base_system_prompt
+        return augment_system_prompt(self._base_system_prompt, workspace)
 
     def run_turn(
         self,
@@ -156,7 +182,7 @@ class _CliTurnRunner:
         return self._runtime.run_turn(
             session=session,
             user_text=user_text,
-            system_prompt=self._system_prompt,
+            system_prompt=self._system_prompt_for(session.id),
         )
 
 

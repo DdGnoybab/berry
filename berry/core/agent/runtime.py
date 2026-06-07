@@ -44,6 +44,7 @@ from berry.core.agent.hook import (
     HookRunner,
     HookVerdictAction,
 )
+from berry.core.agent.reminders import numbered_list_nag, phantom_buttons_nag
 from berry.core.agent.session import AgentSession
 from berry.core.agent.stream_accumulator import StreamAccumulator
 from berry.core.agent.tool_registry import ToolRegistry
@@ -142,6 +143,14 @@ class ConversationRuntime:
 
         rounds_since_todo = 0
         reactive_retries = 0
+        # When the LLM types a numbered list of options without calling
+        # ask_user_question, we set this for the NEXT inner loop iteration
+        # to inject a corrective system-reminder. See
+        # ``core/agent/reminders/numbered_list_nag.py``.
+        pending_numbered_list_nag: numbered_list_nag.NumberedListNag | None = None
+        # Same idea but for phantom buttons (LLM tells the user to "click the
+        # buttons above" while no ask_user_question was called this turn).
+        pending_phantom_buttons_nag: phantom_buttons_nag.PhantomButtonsNag | None = None
 
         # ─── Memory: load relevant memories into context ───
         await self._load_relevant_memories(session, ctx)
@@ -167,6 +176,34 @@ class ConversationRuntime:
                         )],
                     ))
                 rounds_since_todo = 0
+
+            # Numbered-list nag (fire-once-per-detection): when the previous
+            # inner-loop assistant text contained a numbered list of options
+            # without an ask_user_question call, inject a corrective reminder.
+            if pending_numbered_list_nag is not None:
+                session.push_message(LlmMessage(
+                    role="user",
+                    content=[TextBlock(
+                        text=numbered_list_nag.render_reminder(
+                            pending_numbered_list_nag
+                        )
+                    )],
+                ))
+                pending_numbered_list_nag = None
+
+            # Phantom-buttons nag: previous response told the user to "click
+            # the buttons above" (or similar) while no ask_user_question was
+            # called. Inject a corrective reminder.
+            if pending_phantom_buttons_nag is not None:
+                session.push_message(LlmMessage(
+                    role="user",
+                    content=[TextBlock(
+                        text=phantom_buttons_nag.render_reminder(
+                            pending_phantom_buttons_nag
+                        )
+                    )],
+                ))
+                pending_phantom_buttons_nag = None
 
             # Last-chance tool-pairing sanitize before the API call. Compaction
             # passes (snip / micro / auto) can cut a tool_use → tool_result
@@ -213,6 +250,25 @@ class ConversationRuntime:
                 for block in response.content
                 if isinstance(block, ToolUseBlock)
             ]
+
+            # Reminder detection: scan THIS turn's assistant text for a
+            # numbered-list-without-ask_user_question pattern. The detector
+            # only sets pending_*; injection happens on the next loop pass.
+            assistant_text = "".join(
+                b.text for b in response.content if isinstance(b, TextBlock)
+            )
+            tool_names_called = {tu.name for tu in tool_uses}
+            nag = numbered_list_nag.detect(
+                assistant_text, tools_called=tool_names_called
+            )
+            if nag.triggered:
+                pending_numbered_list_nag = nag
+
+            phantom_nag = phantom_buttons_nag.detect(
+                assistant_text, tools_called=tool_names_called
+            )
+            if phantom_nag.triggered:
+                pending_phantom_buttons_nag = phantom_nag
             if not tool_uses:
                 # Plain assistant reply — turn done.
                 # ─── Memory: extract + consolidate (fire-and-forget) ───

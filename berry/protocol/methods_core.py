@@ -261,6 +261,74 @@ class LearningResetParams(BaseModel):
     project_id: UUID
 
 
+# ─── learning.plan_preview / learning.create_project ──────
+
+
+class PlanAtom(BaseModel):
+    """One atomic learning unit inside a module."""
+
+    id: str        # "a1" / "a2" / ...
+    name: str
+
+
+class PlanModule(BaseModel):
+    """One module in the proposed learning plan."""
+
+    id: str        # "01-overview" / "02-data-structures" / ...
+    name: str
+    atoms: list[PlanAtom]
+
+
+class PlanResult(BaseModel):
+    """Output of ``learning.plan_preview`` — the LLM-generated learning plan,
+    not yet committed to disk."""
+
+    modules: list[PlanModule]
+    interview_md: str
+
+
+class LearningPlanPreviewParams(BaseModel):
+    topic: str = Field(min_length=1, description="What to learn, e.g. 'Redis'.")
+    goal: str = Field(
+        default="interview",
+        description="One of: interview / deep / easy. Drives plan depth.",
+    )
+    feedback: str | None = Field(
+        default=None,
+        description=(
+            "Optional user feedback for re-generation: e.g. "
+            "'我已经会 SDS 了,跳过这块,加一个分布式锁的模块'."
+        ),
+    )
+    previous_plan: PlanResult | None = Field(
+        default=None,
+        description="Previous plan to adjust from. Null on first try.",
+    )
+
+
+class LearningCreateProjectParams(BaseModel):
+    topic: str
+    goal: str = "interview"
+    plan: PlanResult
+
+
+class LearningCreateProjectResult(BaseModel):
+    project: ProjectSummary
+    session: SessionMeta
+
+
+class SessionResumeCreateParams(BaseModel):
+    """Create a new session AND immediately stream a resume turn.
+
+    Different from ``session.create`` (one-shot RPC, no LLM kicked off):
+    this RPC commits a fresh session and then streams the LLM's first
+    turn — which uses ``ask_user_question`` to offer resume options
+    based on the project's current ``progress.json``.
+    """
+
+    project_id: UUID
+
+
 # ─── 核心 method 字典 ──────────────────────────────────
 
 
@@ -432,5 +500,46 @@ CORE_METHODS: dict[str, MethodSpec] = {
         params_schema=LearningResetParams,
         result_schema=ResetResult,
         description="Clear all learning data (sessions, memory, todos, progress) for a fresh start.",
+    ),
+    "learning.plan_preview": MethodSpec(
+        name="learning.plan_preview",
+        params_schema=LearningPlanPreviewParams,
+        result_schema=None,
+        stream_event_schema=AgentEvent,
+        description=(
+            "Stream a learning-plan preview for a topic+goal. "
+            "Side-effect-free: uses a sandboxed runtime with WebSearch only, "
+            "no file writes. Final assistant message is the JSON plan."
+        ),
+        domain="learning",
+    ),
+    "learning.create_project": MethodSpec(
+        name="learning.create_project",
+        params_schema=LearningCreateProjectParams,
+        result_schema=None,
+        stream_event_schema=AgentEvent,
+        description=(
+            "Atomically create a learning Project + workspace files + first "
+            "Session from a confirmed plan, then immediately stream the LLM's "
+            "first turn (welcome + first ask_user_question). Frontend receives "
+            "a synthetic ``<<project-created>>{...}<</project-created>>`` "
+            "TextDelta first, then normal turn events."
+        ),
+        domain="learning",
+    ),
+    "session.resume_create": MethodSpec(
+        name="session.resume_create",
+        params_schema=SessionResumeCreateParams,
+        result_schema=None,
+        stream_event_schema=AgentEvent,
+        description=(
+            "Create a new session in an existing learning project and "
+            "immediately stream a 'resume' turn. Frontend receives a "
+            "``<<session-created>>{session}<</session-created>>`` TextDelta "
+            "first, then turn events. The LLM emits a single sentence "
+            "summarising last position + ask_user_question with options "
+            "tailored to the saved progress.json state."
+        ),
+        domain="learning",
     ),
 }

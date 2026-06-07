@@ -53,6 +53,14 @@ def configure_runner(runner: TurnRunner) -> None:
     _runner = runner
 
 
+def get_runner() -> TurnRunner | None:
+    """Read the configured TurnRunner. Used by other handlers (e.g.
+    ``learning.create_project``) that need to drive an init turn after
+    creating a session, without re-importing entrypoints.
+    """
+    return _runner
+
+
 # ─── Handlers ──────────────────────────────────────────────
 
 

@@ -30,6 +30,19 @@ class UserInfo(BaseModel):
     display_name: str
 
 
+class ProjectProgressSummary(BaseModel):
+    """Derived progress info, computed each call from workspace files."""
+
+    phase: str            # "uninitialized" | "planning" | "learning" | "done"
+    percent: int          # 0-100
+    done_atoms: int = 0
+    total_atoms: int = 0
+    done_modules: int = 0
+    total_modules: int = 0
+    current_atom: str | None = None
+    topic: str | None = None
+
+
 class ProjectSummary(BaseModel):
     id: UUID
     user_id: UUID
@@ -40,6 +53,10 @@ class ProjectSummary(BaseModel):
     created_at: datetime
     updated_at: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
+    progress: ProjectProgressSummary | None = None
+    """Learning progress for ``domain == "learning"`` projects.
+    None for non-learning projects.
+    """
 
 
 # ─── Session 摘要(从文件读出来, 无 DB) ──────────────

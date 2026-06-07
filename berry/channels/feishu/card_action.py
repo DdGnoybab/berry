@@ -212,18 +212,16 @@ def handle_card_action(
         action_name = envelope.get("a", "")
         approval_id = (envelope.get("m") or {}).get("approval_id")
 
-        # learning skill click branch — completely independent from approval flow.
-        # We dispatch BEFORE the approval action filter so learning clicks aren't
-        # rejected as "unknown action".
-        from berry.assistants.learning.cards.suggest_card import (
+        # Suggestion-card click branch (independent from approval flow).
+        # Dispatch BEFORE the approval action filter so it isn't rejected
+        # as "unknown action".
+        from berry.channels.feishu.cards.suggest_card import (
             LEARNING_PICK_OPTION_ACTION,
-            LEARNING_PICK_SUB_OPTION_ACTION,
         )
-        if action_name in (LEARNING_PICK_OPTION_ACTION, LEARNING_PICK_SUB_OPTION_ACTION):
+        if action_name == LEARNING_PICK_OPTION_ACTION:
             try:
-                return _handle_learning_click(
+                return _handle_suggestion_click(
                     client=client,
-                    action_name=action_name,
                     metadata=envelope.get("m") or {},
                     message_id=message_id,
                     chat_id=chat_id,
@@ -318,70 +316,65 @@ def handle_card_action(
         raise
 
 
-def _handle_learning_click(
+def _handle_suggestion_click(
     *,
     client: lark.Client,
-    action_name: str,
     metadata: dict[str, Any],
     message_id: str | None,
     chat_id: str | None,
 ) -> P2CardActionTriggerResponse:
-    """Process a SUGGEST card click for the learning skill.
+    """Process a SUGGEST card click.
 
     Side effects:
-      1. Look up workspace via the active FeishuRuntimeAdapter
-      2. Translate click → ClickDecision via ``process_click``
-      3. Patch the original card to a "resolved" state (or sub-menu state)
+      1. Resolve the active session via FeishuRuntimeAdapter's chat cache.
+      2. Translate click → ClickDecision via ``learning_click.process_click``.
+      3. Patch the original card to a "resolved" state.
       4. If the click implies a follow-up turn, schedule
-         ``adapter.inject_synthetic_turn`` on the running event loop
+         ``adapter.inject_synthetic_turn`` on the running event loop.
 
-    On any error (no adapter, no workspace, missing progress) we toast the
-    user and DO NOT mutate the card — they can keep clicking until state
-    catches up, or just type their choice instead.
+    On error (no adapter, stale click) we toast and DO NOT mutate the
+    card — user can click another option or just type freeform.
     """
     import asyncio
 
-    from berry.assistants.learning.cards.suggest_card import (
+    from berry.channels.feishu.cards.suggest_card import (
         build_suggest_card_resolved,
     )
-    from berry.assistants.learning.click_handler import process_click
+    from berry.channels.feishu.learning_click import process_click
     from berry.channels.feishu.runtime import get_feishu_runtime
 
     adapter = get_feishu_runtime()
-    if adapter is None or adapter.workspace_path is None:
-        logger.warning("feishu_learning_click_no_workspace")
-        return _toast_response("学习模式未启用 — 设置 BERRY_LEARNING_WORKSPACE 后重启 berry")
+    if adapter is None:
+        logger.warning("feishu_suggestion_click_no_adapter")
+        return _toast_response("Berry 没运行 — 重启服务后再试")
 
-    decision = process_click(
-        action_name=action_name,
-        metadata=metadata,
-        workspace_path=adapter.workspace_path,
-    )
+    session_id = _find_session_for_chat(adapter, chat_id)
+    if session_id is None:
+        logger.warning("feishu_suggestion_click_no_session", chat_id=chat_id)
+        return _toast_response("找不到上次会话上下文 — 直接打字告诉我吧")
+
+    decision = process_click(session_id=session_id, metadata=metadata)
 
     if decision.kind == "stale":
         logger.info(
-            "feishu_learning_click_stale",
+            "feishu_suggestion_click_stale",
             suggestion_id=decision.suggestion_id,
         )
         return _toast_response("这条建议已经过期了 — 看最新卡片或者直接打字告诉我")
 
-    if decision.kind in ("missing_progress", "unknown_key"):
+    if decision.kind == "unknown_label":
         logger.warning(
-            "feishu_learning_click_no_match",
-            kind=decision.kind,
+            "feishu_suggestion_click_unknown_label",
             suggestion_id=decision.suggestion_id,
+            chosen_label=decision.chosen_label,
         )
         return _toast_response("点击没生效 — 直接打字告诉我你想做什么吧")
 
     # Patch the original card to "resolved" state so the user sees a
-    # clear record of what they picked. (For expands_to / sub-menu cases,
-    # we still mark this card resolved — the sub-menu will arrive as the
-    # next SUGGEST card after the LLM processes the synthetic turn.)
+    # clear record of what they picked.
     if message_id and decision.chosen_label:
         try:
             resolved_json = build_suggest_card_resolved(
-                atom_label="?",  # adapter doesn't expose current atom yet; minor cosmetic
-                context="post_assess",  # neutral default for resolved label
                 chosen_label=decision.chosen_label,
                 was_recommended=decision.was_recommended,
             )
@@ -389,47 +382,35 @@ def _handle_learning_click(
             _remember_resolved_card(message_id, resolved_json)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "feishu_learning_click_patch_failed",
+                "feishu_suggestion_click_patch_failed",
                 error_type=type(exc).__name__,
                 error=str(exc),
             )
 
-    # Schedule the synthesized turn (if any) on the running loop. We can't
-    # await it here — this handler is sync and Feishu wants the response
-    # within ~3s. The follow-up SUGGEST card will arrive when the turn
-    # completes and the watcher fires.
+    # Schedule the synthesised turn fire-and-forget; this handler is sync
+    # and Feishu wants the response within ~3s.
     if decision.synthesized_user_message:
-        # adapter.run_turn keys off conversation_id which == session_id.
-        # The most recent active session is the one tied to this user's chat;
-        # adapter resolves it via _last_chat_for_session.
-        # Find the session_id by reverse-looking-up via chat_id.
-        session_id = _find_session_for_chat(adapter, chat_id)
-        if session_id is None:
-            logger.warning("feishu_learning_click_no_session", chat_id=chat_id)
-            return _toast_response("找不到上次会话上下文 — 直接打字吧")
         try:
             loop = asyncio.get_event_loop()
-            loop.create_task(  # fire-and-forget
+            loop.create_task(
                 adapter.inject_synthetic_turn(
                     conversation_id=session_id,
                     user_text=decision.synthesized_user_message,
                 )
             )
             logger.info(
-                "feishu_learning_click_dispatched",
+                "feishu_suggestion_click_dispatched",
                 session_id=session_id,
-                chosen_key=decision.chosen_key,
-                kind=decision.kind,
+                chosen_label=decision.chosen_label,
             )
         except RuntimeError as exc:
             logger.error(
-                "feishu_learning_click_dispatch_failed",
+                "feishu_suggestion_click_dispatch_failed",
                 error=str(exc),
                 exc_info=True,
             )
             return _toast_response("内部出错了,直接打字告诉我吧")
 
-    # Return the resolved card so Feishu doesn't revert to the pre-click state
     cached = _recall_resolved_card(message_id)
     if cached is not None:
         return _card_response(cached)

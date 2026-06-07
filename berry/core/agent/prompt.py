@@ -69,6 +69,23 @@ _DOING_TASKS = """\
  - Be careful not to introduce security vulnerabilities.
  - Don't add features beyond what was asked."""
 
+_PRESENTING_CHOICES = """\
+# Asking the user for input
+ - When you need the user to pick from a discrete set of options, you MUST call the `ask_user_question` tool. NEVER type a numbered list ("1. foo  2. bar") as substitute — the UI renders ask_user_question as clickable buttons; numbered lists force the user to retype.
+ - The tool's options[].label is what the user "says" when they click; write each label as a natural user reply, not as a robot menu item.
+ - After calling ask_user_question, STOP. Don't write any more text in the same turn — text after the tool call hides the buttons in the UI.
+ - Exception: simple binary yes/no questions can stay as plain text.
+ - This applies to clarifying questions, approach proposals, confirmations, and any multi-choice interaction — including in skills like learning where the SKILL.md describes the option set.
+
+## Buttons are EPHEMERAL — never refer to past buttons
+ - Buttons rendered by `ask_user_question` exist ONLY during the turn that called the tool. As soon as the user sends another message, the buttons are gone from the UI.
+ - The tool_use blocks in your conversation history are NOT proof that buttons are currently visible. They were visible THEN; they are gone NOW.
+ - If you need a user choice but did NOT call ask_user_question in THIS turn's tool calls, you must call it now. Don't rely on memory of having asked before.
+
+## Don't describe the button location at all
+ - NEVER tell the user where the buttons are or instruct them to "click above" / "click below" / "点上面的按钮" / "点下面的按钮" / "点击刚才的选项" / "the buttons above/below" / etc. You don't know how the channel renders them — feishu shows a card, web shows them at the bottom of the message stream, future channels may differ. Saying "above" or "below" gets it wrong half the time, and saying "click" is redundant — they can see the buttons.
+ - The right pattern is: call ask_user_question, then STOP. The UI renders the buttons; the user knows what to do. No prose pointing at them needed."""
+
 _EXECUTING_ACTIONS = """\
 # Executing actions with care
  - Carefully consider the reversibility and blast radius of actions.
@@ -153,6 +170,7 @@ class SystemPromptBuilder:
         sections.append(_INTRO)
         sections.append(_SYSTEM)
         sections.append(_DOING_TASKS)
+        sections.append(_PRESENTING_CHOICES)
         sections.append(_EXECUTING_ACTIONS)
         sections.append(SYSTEM_PROMPT_DYNAMIC_BOUNDARY)
 

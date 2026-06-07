@@ -12,6 +12,7 @@ from sqlalchemy import select
 from berry.config import settings
 from berry.core.db.models import Project
 from berry.core.db.repos.project_repo import ProjectRepo
+from berry.core.project.progress import compute_progress
 from berry.core.project.service import (
     ProjectPathError,
     ProjectService,
@@ -29,10 +30,25 @@ from berry.protocol.methods_core import (
     ProjectListParams,
     ProjectUpdateParams,
 )
-from berry.protocol.types import Page, ProjectSummary
+from berry.protocol.types import Page, ProjectProgressSummary, ProjectSummary
 
 
 def _row_to_summary(row: Project) -> ProjectSummary:
+    progress: ProjectProgressSummary | None = None
+    if row.domain == "learning":
+        svc = ProjectService(settings.data_root)
+        ws = svc.workspace_path(row)
+        p = compute_progress(ws)
+        progress = ProjectProgressSummary(
+            phase=p.phase,
+            percent=p.percent,
+            done_atoms=p.done_atoms,
+            total_atoms=p.total_atoms,
+            done_modules=p.done_modules,
+            total_modules=p.total_modules,
+            current_atom=p.current_atom,
+            topic=p.topic,
+        )
     return ProjectSummary(
         id=row.id,
         user_id=row.user_id,
@@ -43,6 +59,7 @@ def _row_to_summary(row: Project) -> ProjectSummary:
         created_at=row.created_at,
         updated_at=row.updated_at,
         metadata=row.metadata_,
+        progress=progress,
     )
 
 

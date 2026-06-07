@@ -13,17 +13,27 @@ export interface AgentEvent {
 }
 
 export interface SuggestionOption {
-  key: string
   label: string
+  description?: string | null
   recommended: boolean
 }
 
 export interface SuggestionEvent {
-  type: 'suggestion_options'
+  type: 'suggestion_emitted'
   suggestion_id: string
-  context: string
   prompt: string
   options: SuggestionOption[]
+}
+
+export interface ProjectProgress {
+  phase: 'uninitialized' | 'planning' | 'learning' | 'done' | string
+  percent: number
+  done_atoms: number
+  total_atoms: number
+  done_modules: number
+  total_modules: number
+  current_atom: string | null
+  topic: string | null
 }
 
 export interface Project {
@@ -32,6 +42,23 @@ export interface Project {
   title: string
   domain: string
   created_at: string
+  progress?: ProjectProgress | null
+}
+
+export interface PlanAtom {
+  id: string
+  name: string
+}
+
+export interface PlanModule {
+  id: string
+  name: string
+  atoms: PlanAtom[]
+}
+
+export interface PlanResult {
+  modules: PlanModule[]
+  interview_md: string
 }
 
 export interface Session {
@@ -63,4 +90,16 @@ export interface ToolCallInfo {
 export interface Page<T> {
   items: T[]
   next_cursor: string | null
+}
+
+export interface MessageEnvelope {
+  role: string
+  content: Array<{ type: string; text?: string; [k: string]: unknown }>
+  created_at: string
+  metadata: Record<string, unknown>
+}
+
+export interface SessionDetail {
+  meta: Session
+  messages: MessageEnvelope[]
 }

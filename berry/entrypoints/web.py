@@ -10,7 +10,9 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
+from berry.channels.web.routes import configure_http_rpc
 from berry.config import settings
+from berry.core.agent.method_registry import MethodRegistry
 from berry.core.db.repos.project_repo import ProjectRepo
 from berry.core.db.repos.user_repo import UserRepo
 from berry.core.db.session import async_session_factory
@@ -21,9 +23,7 @@ from berry.entrypoints.cli import (
     _build_runtime,
     _CliTurnRunner,
 )
-from berry.gateway.http.rpc import configure_http_rpc
 from berry.gateway.methods import register_core
-from berry.gateway.methods.registry import MethodRegistry
 from berry.gateway.methods.turn import configure_runner
 from berry.observability.logging import configure_logging, get_logger
 
@@ -63,6 +63,33 @@ async def _ensure_demo_project(user_id: UUID) -> UUID:
         return project.id
 
 
+def _build_session_cwd_resolver(default_workspace: Path):
+    """Resolve session_id → its project's workspace path.
+
+    Lookup walks the filesystem under ``data_root/projects/`` (no DB
+    call — runtime needs sync access). Falls back to
+    ``default_workspace`` when no matching session dir is found
+    (e.g. the very first turn before any session is committed).
+    """
+    projects_root = settings.data_root / "projects"
+
+    def resolve(session_id: str) -> Path:
+        if not projects_root.is_dir():
+            return default_workspace
+        # data_root/projects/<user_id>/<project_name>/sessions/<session_id>/
+        for user_dir in projects_root.iterdir():
+            if not user_dir.is_dir():
+                continue
+            for proj_dir in user_dir.iterdir():
+                if not proj_dir.is_dir():
+                    continue
+                if (proj_dir / "sessions" / session_id).is_dir():
+                    return proj_dir
+        return default_workspace
+
+    return resolve
+
+
 async def web_setup() -> None:
     """Wire up the method registry for HTTP transport.
 
@@ -78,8 +105,26 @@ async def web_setup() -> None:
     project_id = await _ensure_demo_project(user_id)
     logger.info("web_project_ready", project_id=str(project_id))
 
-    runtime, system_prompt = _build_runtime()
-    runner = _CliTurnRunner(runtime, system_prompt)
+    # The demo project doubles as the fallback workspace for sessions
+    # that don't yet exist on disk (e.g. plan-preview ephemeral sessions
+    # which never get a real session dir).
+    async with async_session_factory() as db:
+        project = await ProjectRepo(db).get_by_id(project_id)
+    if project is None:
+        raise RuntimeError(f"demo project {project_id} not found after creation")
+    default_workspace = ProjectService(settings.data_root).workspace_path(project)
+    default_workspace.mkdir(parents=True, exist_ok=True)
+    logger.info(
+        "web_default_workspace_resolved", path=str(default_workspace)
+    )
+
+    # Dynamic resolver — looks up each session's actual project workspace.
+    # Critical for multi-project: a Redis session and a LangGraph session
+    # must point at different workspaces, otherwise file tools collide.
+    cwd_resolver = _build_session_cwd_resolver(default_workspace)
+
+    runtime, system_prompt = _build_runtime(cwd_resolver=cwd_resolver)
+    runner = _CliTurnRunner(runtime, system_prompt, cwd_resolver=cwd_resolver)
     configure_runner(runner)
 
     registry = MethodRegistry()
@@ -92,13 +137,17 @@ async def web_setup() -> None:
 
 def main() -> None:
     """Sync entry point: start uvicorn (setup happens in lifespan)."""
+    import os
+
     import uvicorn
+
+    dev = os.environ.get("BERRY_DEV", "").lower() in ("1", "true", "yes")
 
     uvicorn.run(
         "berry.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=False,
+        reload=dev,
         log_level="info",
     )
 

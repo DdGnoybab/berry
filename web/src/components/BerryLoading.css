@@ -1,0 +1,99 @@
+/* ── Berry Loading ── */
+.berry-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 40px;
+}
+
+.berry-loading__runner {
+  position: relative;
+  animation: berry-run-bounce 0.35s ease-in-out infinite;
+}
+
+.berry-loading__cat {
+  display: block;
+}
+
+/* Front and back legs swing opposite */
+.berry-loading__legs-front {
+  transform-origin: 24px 48px;
+  animation: berry-legs-front 0.35s ease-in-out infinite;
+}
+
+.berry-loading__legs-back {
+  transform-origin: 40px 48px;
+  animation: berry-legs-back 0.35s ease-in-out infinite;
+}
+
+/* Tail wags */
+.berry-loading__tail {
+  transform-origin: 48px 32px;
+  animation: berry-tail 0.5s ease-in-out infinite alternate;
+}
+
+/* Ground shadow pulses */
+.berry-loading__shadow {
+  width: 48px;
+  height: 6px;
+  background: rgba(255, 230, 0, 0.12);
+  border-radius: 50%;
+  margin: 4px auto 0;
+  animation: berry-shadow 0.35s ease-in-out infinite;
+}
+
+/* Text */
+.berry-loading__text {
+  font-size: 13px;
+  color: #888;
+  letter-spacing: 0.05em;
+}
+
+.berry-loading__dots span {
+  animation: berry-dot-blink 1.2s infinite;
+}
+
+.berry-loading__dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.berry-loading__dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* ── Keyframes ── */
+
+@keyframes berry-run-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes berry-legs-front {
+  0% { transform: rotate(20deg); }
+  50% { transform: rotate(-20deg); }
+  100% { transform: rotate(20deg); }
+}
+
+@keyframes berry-legs-back {
+  0% { transform: rotate(-20deg); }
+  50% { transform: rotate(20deg); }
+  100% { transform: rotate(-20deg); }
+}
+
+@keyframes berry-tail {
+  0% { transform: rotate(-10deg); }
+  100% { transform: rotate(10deg); }
+}
+
+@keyframes berry-shadow {
+  0%, 100% { transform: scaleX(1); opacity: 0.12; }
+  50% { transform: scaleX(0.8); opacity: 0.06; }
+}
+
+@keyframes berry-dot-blink {
+  0%, 20% { opacity: 0; }
+  40% { opacity: 1; }
+  100% { opacity: 0; }
+}

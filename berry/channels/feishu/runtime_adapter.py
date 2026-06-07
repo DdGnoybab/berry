@@ -140,6 +140,10 @@ class FeishuRuntimeAdapter:
         # (fires from a card click outside any turn) can still find it.
         self._last_chat_for_session[session.id] = (chat_id, user_open_id, trigger_message_id)
 
+        # Make sure SUGGEST events for this session are routed to the
+        # Feishu listener (idempotent — does nothing if already subscribed).
+        self._ensure_event_listener(session.id)
+
         text_buffer: list[str] = []
         try:
             try:
@@ -169,11 +173,6 @@ class FeishuRuntimeAdapter:
             # 把这轮新增的所有消息 append 到磁盘(参考 gateway/methods/turn.py 同款套路)
             self._persist_new(session, store, pre_count)
 
-            # learning skill: reconcile progress.json after the turn so that
-            # any new SUGGEST the LLM wrote to .berry/progress.json fires its
-            # event listener (which renders the SUGGEST card to feishu).
-            self._reconcile_progress_after_turn(session.id)
-
             # 把 buffer 里的 TextDelta 合起来作为返回值。
             # 如果 buffer 为空(LLM 一句没说就 stop_reason),回退到 session 末尾
             # 那条 assistant 消息的 text。
@@ -185,19 +184,23 @@ class FeishuRuntimeAdapter:
             # to a stale (chat_id, user_open_id) from a finished turn.
             self._chat_context.pop(session.id, None)
 
-    def _reconcile_progress_after_turn(self, session_id: str) -> None:
-        if self._workspace_path is None:
-            return
+    def _ensure_event_listener(self, session_id: str) -> None:
+        """Idempotently subscribe the feishu event listener for this
+        session. ``ask_user_question`` events fire from inside a tool
+        call (synchronously during ``run_turn``); we need a subscriber
+        ready before that point.
+        """
         try:
-            from berry.assistants.learning.progress_watcher import get_default_watcher
-
-            get_default_watcher().reconcile(
-                conversation_id=session_id,
-                workspace_path=self._workspace_path,
+            from berry.channels.feishu.event_listener import (
+                get_feishu_event_listener,
             )
-        except Exception as exc:  # noqa: BLE001 — listener pipeline is fire-and-forget
+
+            listener = get_feishu_event_listener()
+            if listener is not None:
+                listener.ensure_subscribed(session_id)
+        except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "feishu_progress_reconcile_failed",
+                "feishu_event_listener_subscribe_failed",
                 session_id=session_id,
                 error_type=type(exc).__name__,
                 error=str(exc),

@@ -13,9 +13,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from berry import __version__
+from berry.channels.web.routes import router as web_router
 from berry.core.db.session import engine
-from berry.gateway.http.health import router as health_router
-from berry.gateway.http.rpc import router as rpc_router
 from berry.observability.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -64,9 +63,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # 路由注册
-    app.include_router(health_router)
-    app.include_router(rpc_router)
+    # 路由注册 — web channel 已经把 health 子路由 include 进去了
+    app.include_router(web_router)
 
     return app
 

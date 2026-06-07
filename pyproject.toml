@@ -199,38 +199,36 @@ forbidden_modules = [
     "berry.entrypoints",
 ]
 
-# ── Rules added by ADR-0003: assistants/ business layer ──
+# ── Rules updated by ADR-0008: skills/ replaces assistants/ ──
 
-# Rule 8: core does not depend on assistants
+# Rule 8: core does not depend on skills (was: assistants)
 [[tool.importlinter.contracts]]
-name = "core does not depend on assistants"
+name = "core does not depend on skills"
 type = "forbidden"
 source_modules = ["berry.core"]
-forbidden_modules = ["berry.assistants"]
+forbidden_modules = ["berry.skills"]
 
-# Rule 9: channels does not depend on assistants
+# Rule 9: channels does not depend on skills
 [[tool.importlinter.contracts]]
-name = "channels does not depend on assistants"
+name = "channels does not depend on skills"
 type = "forbidden"
 source_modules = ["berry.channels"]
-forbidden_modules = ["berry.assistants"]
+forbidden_modules = ["berry.skills"]
 
-# Rule 10: gateway does not depend on assistants
+# Rule 10: gateway does not depend on skills
 [[tool.importlinter.contracts]]
-name = "gateway does not depend on assistants"
+name = "gateway does not depend on skills"
 type = "forbidden"
 source_modules = ["berry.gateway"]
-forbidden_modules = ["berry.assistants"]
+forbidden_modules = ["berry.skills"]
 
-# Rule 11: assistants are siblings — no cross-import between them.
-# Currently only learning exists; this contract is a placeholder that
-# documents the rule. Add other assistant subpackages to forbidden_modules
-# whenever a new one is introduced (e.g. berry.assistants.work).
+# Rule 11: skills are siblings — no cross-import between them.
+# Placeholder; extended as new skills ship.
 [[tool.importlinter.contracts]]
-name = "assistants.learning does not depend on other assistants"
+name = "skills.learning does not depend on other skills"
 type = "forbidden"
-source_modules = ["berry.assistants.learning"]
-forbidden_modules = []   # extend as new assistants ship
+source_modules = ["berry.skills.learning"]
+forbidden_modules = []
 
 # Rule 12: protocol does not depend on any berry internal except core.agent.events
 # (events.py is a re-export bridge - this exception is intentional)
@@ -242,7 +240,7 @@ forbidden_modules = [
     "berry.channels",
     "berry.gateway",
     "berry.entrypoints",
-    "berry.assistants",
+    "berry.skills",
     "berry.observability",
     "berry.security",
     "berry.core.db",
