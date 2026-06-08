@@ -162,8 +162,11 @@ if [ "$FORCE_BUILD" = "1" ]; then
 elif [ "$NEW_COMMIT" = "$PREV_COMMIT" ]; then
     yellow "  ⓘ 没有新提交,跳过 build"
 else
-    BUILD_TRIGGERS="Dockerfile|deploy/Dockerfile.web|pyproject.toml|uv.lock|web/package.json|web/package-lock.json"
-    CHANGED=$(remote_capture "git diff --name-only $PREV_COMMIT $NEW_COMMIT | grep -E '^($BUILD_TRIGGERS)\$' || true")
+    # 任何会被 COPY 进镜像的文件改了都要重 build。
+    # 源码目录用前缀匹配(berry/ web/ config/),配置/依赖文件用全名匹配。
+    # 注意:berry/ 只匹配 berry/<...> 不会误中根目录 berry 单文件,因为我们用 ^ 锚定。
+    BUILD_TRIGGER_PATTERN='^(Dockerfile|deploy/Dockerfile\.web|deploy/nginx\.conf|pyproject\.toml|uv\.lock|berry/.+|config/.+|web/.+)$'
+    CHANGED=$(remote_capture "git diff --name-only $PREV_COMMIT $NEW_COMMIT | grep -E '$BUILD_TRIGGER_PATTERN' || true")
     if [ -n "$CHANGED" ]; then
         green "  ✓ 检测到依赖文件变化,需要 build:"
         echo "$CHANGED" | sed 's/^/    /'
