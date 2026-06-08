@@ -45,13 +45,27 @@ export function useChat(sessionId: string | null, projectId: string | undefined)
         if (cancelled) return
         const loaded: ChatMessage[] = detail.messages
           .filter((env) => env.role === 'user' || env.role === 'assistant')
-          .map((env, i) => ({
-            id: `hist-${sessionId}-${i}`,
-            role: env.role as 'user' | 'assistant',
-            content: env.content
+          // Hide synthetic LLM-context messages: backend injects priming
+          // user prompts, memory <system-reminder>s, and nag reminders
+          // into the LLM session. These are persisted alongside real
+          // turns but should never show up in the rebuilt chat history.
+          .filter((env) => env.metadata?.synthetic !== true)
+          // Drop empty assistant text (turns whose only output was a
+          // tool_use; the visible result lives in the *next* assistant
+          // message after the tool_result, so a blank bubble here is
+          // just noise).
+          .map((env) => ({
+            env,
+            text: env.content
               .filter((b) => b.type === 'text')
               .map((b) => b.text ?? '')
               .join(''),
+          }))
+          .filter(({ env, text }) => env.role === 'user' || text.trim().length > 0)
+          .map(({ env, text }, i) => ({
+            id: `hist-${sessionId}-${i}`,
+            role: env.role as 'user' | 'assistant',
+            content: text,
             timestamp: new Date(env.created_at),
           }))
         setMessages((prev) => (prev.length > 0 ? prev : loaded))

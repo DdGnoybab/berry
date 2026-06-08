@@ -200,11 +200,21 @@ class SessionStore:
             metadata: Optional extra key/value pairs stored alongside the
                 message envelope (e.g. tool_call_id, latency_ms).
         """
+        meta = dict(metadata) if metadata else {}
+        # Auto-tag synthetic messages so the frontend can hide them when
+        # rebuilding chat history. These messages are real LLM context
+        # (priming requests, memory injections) but never typed by the
+        # user — showing them on history reload looks like leakage.
+        if "synthetic" not in meta:
+            kind = _detect_synthetic_kind(message)
+            if kind is not None:
+                meta["synthetic"] = True
+                meta["synthetic_kind"] = kind
         envelope = {
             "role": message.role,
             "content": [block.model_dump() for block in message.content],
             "created_at": datetime.now(UTC).isoformat(),
-            "metadata": metadata or {},
+            "metadata": meta,
         }
         # Sanitize surrogate halves (e.g. when an upstream SSE chunk splits a
         # multi-byte emoji and the SDK leaves lone surrogates in the str). UTF-8
@@ -264,6 +274,8 @@ class SessionStore:
             files.append(self.messages_path)
         return files
 
+    # ─── synthetic detection (used by append_message above) ────────────
+
     def load_all_messages(self) -> list[dict[str, Any]]:
         """Return complete message envelope list (oldest to newest).
 
@@ -285,3 +297,45 @@ class SessionStore:
                         continue
                     out.append(json.loads(stripped))
         return out
+
+
+# ─── synthetic-message detection ────────────────────────────────────────
+
+
+_SYNTHETIC_PRIMING_PREFIXES = (
+    "我刚选好了学习计划",   # learning.create_project priming
+    "请按 SKILL.md",        # session.resume_create / generic priming
+    "<<session-error>>",
+    "<<plan-result>>",
+)
+
+
+def _detect_synthetic_kind(message: LlmMessage) -> str | None:
+    """Identify messages that should not appear in user-visible chat history.
+
+    Returns a kind label (e.g. ``"priming"``, ``"memory_injection"``,
+    ``"reminder"``) or ``None`` if the message is genuine user/assistant
+    content. Detection is content-based since the call sites don't tag
+    these messages explicitly today.
+    """
+    if message.role != "user":
+        return None
+
+    text_parts: list[str] = []
+    for block in message.content:
+        text = getattr(block, "text", None)
+        if isinstance(text, str):
+            text_parts.append(text)
+    if not text_parts:
+        return None
+    blob = "".join(text_parts).lstrip()
+    if not blob:
+        return None
+
+    if "<system-reminder>" in blob:
+        # Memory injection / nag reminder / runtime tag — never user text.
+        return "reminder"
+    for prefix in _SYNTHETIC_PRIMING_PREFIXES:
+        if blob.startswith(prefix):
+            return "priming"
+    return None
