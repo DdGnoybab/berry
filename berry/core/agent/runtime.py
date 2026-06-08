@@ -19,6 +19,7 @@ graph framework. ~300 lines, single file, every decision visible.
 
 from __future__ import annotations
 
+import copy
 import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
@@ -164,15 +165,6 @@ class ConversationRuntime:
         await self._load_relevant_memories(session, ctx)
 
         for _ in range(self._max_inner_loops):
-            # ─── 四层压缩管线（每轮 LLM 调用前） ───
-            session.messages = list(apply_compaction_pipeline(
-                list(session.messages),
-                CompactionConfig(
-                    auto_compact_threshold=self._auto_compact_threshold,
-                    persist_dir=cwd / ".berry",
-                ),
-            )[0])
-
             # Nag reminder: inject if todo_write hasn't been called for a while.
             if self._todo_nag_rounds > 0 and rounds_since_todo >= self._todo_nag_rounds:
                 if _has_pending_todos(ctx.cwd):
@@ -213,13 +205,25 @@ class ConversationRuntime:
                 ))
                 pending_phantom_buttons_nag = None
 
+            # ─── 四层压缩管线（每轮 LLM 调用前,在所有 nag 注入之后） ───
+            # 关键:深拷贝再传入。pipeline 内部 L2/L3 会 mutate block.output,
+            # 浅拷贝会污染 session.messages。压缩结果只用于本轮 LLM 调用,
+            # session 永远保留全量 history,避免「前言不搭后语」。
+            compacted_for_llm = apply_compaction_pipeline(
+                copy.deepcopy(list(session.messages)),
+                CompactionConfig(
+                    auto_compact_threshold=self._auto_compact_threshold,
+                    persist_dir=cwd / ".berry",
+                ),
+            )[0]
+
             # Last-chance tool-pairing sanitize before the API call. Compaction
             # passes (snip / micro / auto) can cut a tool_use → tool_result
             # pair across their kept-window boundary, leaving a tool_result
             # whose tool_use isn't in the request anymore (or vice versa).
             # Anthropic 400s on this. Strip the orphans here so the wire
             # request is always self-consistent.
-            request_messages = _strip_unpaired_tool_blocks(list(session.messages))
+            request_messages = _strip_unpaired_tool_blocks(compacted_for_llm)
 
             request = LlmRequest(
                 model=current_model,

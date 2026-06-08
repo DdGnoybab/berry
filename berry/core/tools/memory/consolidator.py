@@ -22,8 +22,10 @@ from berry.core.tools.memory.store import MemoryStore
 logger = structlog.get_logger(__name__)
 
 CONSOLIDATE_THRESHOLD = 10
-LOCK_MAX_AGE_SECONDS = 3600  # 1 hour
-LAST_CONSOLIDATE_KEY = "_last_consolidate_ts"
+LOCK_MAX_AGE_SECONDS = 3600  # 1 hour - in-flight lock TTL
+MIN_INTERVAL_SECONDS = 24 * 3600  # 24h - minimum gap between successful runs
+STAMP_FILENAME = ".consolidate-stamp"  # records last successful completion ts
+LOCK_FILENAME = ".consolidate-lock"    # records currently-running pid
 
 
 async def consolidate_memories(
@@ -58,19 +60,33 @@ async def _do_consolidate(
     if len(entries) < CONSOLIDATE_THRESHOLD:
         return 0
 
-    # Gate 2: time (24h since last consolidation)
-    lock_path = memory_dir / ".consolidate-lock"
+    # Gate 2: time since last successful consolidation (24h)
+    # `.consolidate-stamp` mtime = last successful completion. Independent of
+    # the in-flight lock so that "currently running" and "ran recently"
+    # are decoupled — previously they shared one file and finally cleaned it up,
+    # making the 24h gate a no-op (consolidator ran every turn).
+    stamp_path = memory_dir / STAMP_FILENAME
+    if stamp_path.is_file():
+        try:
+            stamp_age = time.time() - stamp_path.stat().st_mtime
+            if stamp_age < MIN_INTERVAL_SECONDS:
+                return 0
+        except OSError:
+            pass
+
+    # Gate 3: in-flight lock (prevent concurrent runs in same/neighbor process)
+    lock_path = memory_dir / LOCK_FILENAME
     if lock_path.is_file():
         try:
             lock_age = time.time() - lock_path.stat().st_mtime
             if lock_age < LOCK_MAX_AGE_SECONDS:
-                return 0  # Lock held, skip
-            # Lock expired, clean up
+                return 0  # Another run in flight
+            # Stale lock (process died), clean up and continue
             lock_path.unlink()
         except OSError:
             pass
 
-    # Gate 3: acquire lock
+    # Gate 4: acquire lock
     _acquire_lock(lock_path)
 
     try:
