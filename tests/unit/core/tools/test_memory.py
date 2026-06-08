@@ -214,3 +214,117 @@ class TestLoader:
         mem_dir.mkdir(parents=True, exist_ok=True)
         entries = load_relevant_memories(mem_dir, ["nope.md"])
         assert entries == []
+
+
+# ── Consolidator gating ──────────────────────────────────────────────────
+
+
+class TestConsolidatorGating:
+    """The 24h gate is the whole point of this rewrite — guard it with tests."""
+
+    @pytest.mark.asyncio
+    async def test_skips_when_below_threshold(self, tmp_path: Path) -> None:
+        from berry.core.tools.memory import consolidator
+
+        store = MemoryStore(tmp_path / "memory")
+        store.write("only-one", "user", "x", "y")  # < 10 files
+
+        calls = []
+
+        async def fake_llm(prompt: str) -> str:
+            calls.append(prompt)
+            return "NO_CHANGES"
+
+        n = await consolidator.consolidate_memories(store, invoke_llm=fake_llm)
+        assert n == 0
+        assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_runs_when_above_threshold_and_no_stamp(
+        self, tmp_path: Path
+    ) -> None:
+        from berry.core.tools.memory import consolidator
+
+        store = MemoryStore(tmp_path / "memory")
+        for i in range(12):
+            store.write(f"mem-{i}", "user", "d", "b")
+
+        calls = []
+
+        async def fake_llm(prompt: str) -> str:
+            calls.append(prompt)
+            return "NO_CHANGES"
+
+        await consolidator.consolidate_memories(store, invoke_llm=fake_llm)
+        assert len(calls) == 1
+        # NO_CHANGES path must still write the stamp so we don't re-run.
+        assert (store.memory_dir / consolidator.STAMP_FILENAME).is_file()
+
+    @pytest.mark.asyncio
+    async def test_24h_gate_blocks_second_run(self, tmp_path: Path) -> None:
+        """The bug we're fixing: second call within 24h must NOT call LLM."""
+        from berry.core.tools.memory import consolidator
+
+        store = MemoryStore(tmp_path / "memory")
+        for i in range(12):
+            store.write(f"mem-{i}", "user", "d", "b")
+
+        calls = []
+
+        async def fake_llm(prompt: str) -> str:
+            calls.append(prompt)
+            return "NO_CHANGES"
+
+        await consolidator.consolidate_memories(store, invoke_llm=fake_llm)
+        await consolidator.consolidate_memories(store, invoke_llm=fake_llm)
+        await consolidator.consolidate_memories(store, invoke_llm=fake_llm)
+
+        assert len(calls) == 1, (
+            f"24h gate failed — LLM called {len(calls)} times within seconds"
+        )
+
+    @pytest.mark.asyncio
+    async def test_runs_again_after_stamp_expires(self, tmp_path: Path) -> None:
+        from berry.core.tools.memory import consolidator
+
+        store = MemoryStore(tmp_path / "memory")
+        for i in range(12):
+            store.write(f"mem-{i}", "user", "d", "b")
+
+        async def fake_llm(prompt: str) -> str:
+            return "NO_CHANGES"
+
+        await consolidator.consolidate_memories(store, invoke_llm=fake_llm)
+        stamp = store.memory_dir / consolidator.STAMP_FILENAME
+        assert stamp.is_file()
+
+        # Backdate the stamp 25h into the past — gate should reopen.
+        import os
+        old = stamp.stat().st_mtime - 25 * 3600
+        os.utime(stamp, (old, old))
+
+        calls = []
+
+        async def counting_llm(prompt: str) -> str:
+            calls.append(prompt)
+            return "NO_CHANGES"
+
+        await consolidator.consolidate_memories(store, invoke_llm=counting_llm)
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_parse_failure_does_not_burn_24h(self, tmp_path: Path) -> None:
+        """If LLM returns garbage, leave the stamp alone so we can retry sooner.
+        Lock TTL (1h) still throttles, so we don't spam the API."""
+        from berry.core.tools.memory import consolidator
+
+        store = MemoryStore(tmp_path / "memory")
+        for i in range(12):
+            store.write(f"mem-{i}", "user", "d", "b")
+
+        async def garbage_llm(prompt: str) -> str:
+            return "definitely not json and not NO_CHANGES"
+
+        await consolidator.consolidate_memories(store, invoke_llm=garbage_llm)
+        stamp = store.memory_dir / consolidator.STAMP_FILENAME
+        assert not stamp.is_file(), "stamp should NOT be written on parse failure"

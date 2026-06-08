@@ -114,10 +114,13 @@ async def _do_consolidate(
 
         if result.strip().upper() == "NO_CHANGES":
             logger.info("memory_consolidate_no_changes")
+            _touch_stamp(stamp_path)
             return 0
 
         new_memories = _parse_consolidated(result)
         if not new_memories:
+            # Parse failed — leave stamp alone so next attempt isn't blocked
+            # for 24h by a transient LLM hiccup. Lock TTL (1h) still throttles.
             return 0
 
         # Replace all files
@@ -132,6 +135,7 @@ async def _do_consolidate(
             )
 
         logger.info("memory_consolidated", count=len(new_memories))
+        _touch_stamp(stamp_path)
         return len(new_memories)
 
     finally:
@@ -153,6 +157,15 @@ def _release_lock(lock_path: Path) -> None:
     """Remove lock file."""
     try:
         lock_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _touch_stamp(stamp_path: Path) -> None:
+    """Mark a successful completion. The mtime of this file is the gate
+    for the 24h interval check on subsequent runs."""
+    try:
+        stamp_path.write_text(f"ts={time.time()}\n", encoding="utf-8")
     except OSError:
         pass
 

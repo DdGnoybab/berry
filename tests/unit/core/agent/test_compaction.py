@@ -190,3 +190,21 @@ def test_pipeline_runs_l1_snip() -> None:
     config = CompactionConfig(max_messages=20, auto_compact_threshold=999_999)
     result, _ = apply_compaction_pipeline(messages, config)
     assert len(result) == 20
+
+
+def test_micro_compact_mutates_blocks_in_place() -> None:
+    """Documents the mutation behavior — runtime relies on this knowledge to
+    deepcopy session.messages before passing in (see runtime.py inner loop).
+    If this ever changes to non-mutating, the deepcopy in runtime can drop."""
+    block = ToolResultBlock(tool_use_id="x", output="A" * 500)
+    msg = LlmMessage(role="user", content=[block])
+    extra = [
+        LlmMessage(
+            role="user",
+            content=[ToolResultBlock(tool_use_id=f"y{i}", output=f"r{i}" * 200)],
+        )
+        for i in range(10)
+    ]
+    micro_compact([msg, *extra], keep_recent=3)
+    # The first block was old enough to be compacted → its output is replaced.
+    assert "compacted" in block.output.lower()
