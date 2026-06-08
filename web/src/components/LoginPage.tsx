@@ -1,6 +1,5 @@
-import { FormEvent, useState } from 'react'
-import { login } from '../auth'
-import type { MeResponse } from '../auth'
+import { useState, type FormEvent } from 'react'
+import { login, type MeResponse } from '../auth'
 import './LoginPage.css'
 
 interface Props {
