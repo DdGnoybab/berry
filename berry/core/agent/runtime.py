@@ -58,7 +58,6 @@ from berry.core.llm.types import (
     StreamEvent,
     TextBlock,
     TextDelta,
-    ToolCallStart,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -318,7 +317,19 @@ class ConversationRuntime:
                 )
                 return
 
-            # 6. Execute every tool_use serially; collect ToolResultBlocks.
+            # 6. Announce every tool_use with COMPLETE args (the LLM-layer
+            #    ToolCallStart fires before deltas, so args are empty there
+            #    and not forwarded — see _stream_event_to_agent_event).
+            #    Emitting here, after stream accumulation, gives channels
+            #    a single event per call with the fully-assembled input.
+            for tool_use in tool_uses:
+                yield agent_events.ToolCallStart(
+                    id=tool_use.id,
+                    name=tool_use.name,
+                    args=dict(tool_use.input) if isinstance(tool_use.input, dict) else {},
+                )
+
+            # 7. Execute every tool_use serially; collect ToolResultBlocks.
             tool_results: list[ToolResultBlock] = []
             for tool_use in tool_uses:
                 result_block = await self._handle_one_tool_use(tool_use, ctx)
@@ -557,16 +568,22 @@ def _stream_event_to_agent_event(
     ev: StreamEvent,
 ) -> agent_events.AgentEvent | None:
     """Forward a small subset of LLM-layer StreamEvents to channel-facing
-    AgentEvents. Internal events (MessageStart, ToolCallDelta, MessageStop,
-    UsageEvent, StreamError) are absorbed by StreamAccumulator and not
-    surfaced — channels don't need them.
+    AgentEvents. Internal events (MessageStart, ToolCallStart, ToolCallDelta,
+    MessageStop, UsageEvent, StreamError) are absorbed by StreamAccumulator
+    and not surfaced — channels don't need them.
+
+    NOTE: ``ToolCallStart`` from the LLM layer is intentionally NOT
+    forwarded. At that moment ``input`` is empty (args stream in via
+    deltas), so a forwarded event would carry ``args={}`` and be useless
+    to channels that need to render the call (e.g. the web UI's
+    ``ask_user_question`` button group). Instead, the runtime emits a
+    single complete ``ToolCallStart`` per tool_use AFTER stream
+    accumulation, when ``input`` is fully assembled — see the
+    ``yield agent_events.ToolCallStart(...)`` block right before tool
+    dispatch in ``ConversationRuntime.run_turn``.
     """
     if isinstance(ev, TextDelta):
         return agent_events.TextDelta(text=ev.text)
-    if isinstance(ev, ToolCallStart):
-        # Args aren't known yet at start-of-call (they stream in via deltas).
-        # Channels that need full args should listen for ToolResult instead.
-        return agent_events.ToolCallStart(id=ev.id, name=ev.name, args={})
     return None
 
 

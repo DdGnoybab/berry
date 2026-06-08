@@ -353,12 +353,12 @@ body::before {
 
 .message.user .avatar {
   background: var(--accent);
-  color: #000;
+  color: #1a1a1a;
 }
 
 .message.assistant .avatar {
-  background: var(--accent);
-  color: #000;
+  background: #6c8eef;
+  color: #f8f9ff;
 }
 
 .message-content {
@@ -965,9 +965,7 @@ body::before {
 /* ── Suggestion buttons ──────────────────── */
 
 .suggestions {
-  max-width: 768px;
-  margin: 8px auto 16px;
-  padding: 0 0 0 48px;
+  margin: 12px 0 4px;
 }
 
 .suggestions-prompt {
@@ -983,7 +981,7 @@ body::before {
 }
 
 .suggestion-btn {
-  padding: 8px 16px;
+  padding: 8px 14px;
   background: var(--bg-secondary);
   border: 2px solid var(--border);
   border-radius: 0;
@@ -991,7 +989,9 @@ body::before {
   font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.15s;
-  white-space: nowrap;
+  text-align: left;
+  line-height: 1.4;
+  max-width: 480px;
 }
 
 .suggestion-btn:hover:not(:disabled) {
@@ -1000,7 +1000,7 @@ body::before {
 }
 
 .suggestion-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -1013,8 +1013,18 @@ body::before {
   background: rgba(255, 230, 0, 0.15);
 }
 
+.suggestion-label {
+  font-weight: 500;
+}
+
+.suggestion-desc {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
 .rec-star {
   font-size: 0.75rem;
+  margin-right: 4px;
 }
 
 /* ── Scrollbar ──────────────────────────── */

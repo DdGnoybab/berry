@@ -8,7 +8,6 @@ import { ConfirmModal } from './components/ConfirmModal'
 import { LoginPage } from './components/LoginPage'
 import { NewProjectModal } from './components/NewProjectModal'
 import { Sidebar } from './components/Sidebar'
-import { SuggestionButtons } from './components/SuggestionButtons'
 import { Welcome } from './components/Welcome'
 import { useChat } from './hooks/useChat'
 import type { Project, Session } from './types'
@@ -46,8 +45,19 @@ function App() {
     finishExternalTurn,
   } = useChat(activeSessionId ?? null, activeProjectId ?? undefined)
 
-  const lastSuggestion = [...messages].reverse().find((m) => m.suggestions)?.suggestions ?? null
-  const showSuggestions = lastSuggestion && !isStreaming
+  // The trailing assistant bubble — and only that one — has live,
+  // clickable ask_user_question buttons. "Trailing" means: it is the
+  // last message AND no user message comes after it. That way:
+  //   - user mid-answer (we just pushed their text, awaiting SSE) →
+  //     the prior assistant's buttons go disabled immediately (no
+  //     double-click on a stale option)
+  //   - user closed the page mid-question → on next load the trailing
+  //     assistant is still the last message, so its buttons stay live
+  //   - earlier-turn buttons → always disabled (history view)
+  const trailingAssistantIdx =
+    messages.length > 0 && messages[messages.length - 1].role === 'assistant'
+      ? messages.length - 1
+      : -1
 
   // Load sessions for a project (and cache)
   const loadProjectSessions = useCallback(async (projectId: string) => {
@@ -482,16 +492,14 @@ function App() {
             />
           ) : (
             <div className="messages">
-              {messages.map((msg) => (
-                <ChatMessage key={msg.id} message={msg} />
-              ))}
-              {showSuggestions && (
-                <SuggestionButtons
-                  suggestion={lastSuggestion}
-                  onPick={sendMessage}
-                  disabled={isStreaming}
+              {messages.map((msg, i) => (
+                <ChatMessage
+                  key={msg.id}
+                  message={msg}
+                  onPickSuggestion={sendMessage}
+                  isLatestAssistant={i === trailingAssistantIdx && !isStreaming}
                 />
-              )}
+              ))}
               {isStreaming && messages[messages.length - 1]?.role === 'user' && (
                 <div className="message assistant">
                   <div className="typing-indicator">
