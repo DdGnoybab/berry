@@ -151,25 +151,56 @@ async def turn_stream_endpoint(req: RpcRequest, request: Request) -> StreamingRe
         # tool-emitted events flow into the existing SSE channel.
         sub_queue = bus.subscribe(request_session_id)
         extra_subscribed_ids: list[str] = []
-        sentinel_re = re.compile(
+        # Two RPCs create a fresh session inside the handler:
+        #   - ``session.resume_create`` → ``<<session-created>>{...session payload}<</session-created>>``
+        #   - ``learning.create_project`` → ``<<project-created>>{project, session}<</project-created>>``
+        # In both cases we need to learn the new session_id (so later
+        # tool-emitted ``SuggestionEmitted`` events reach this SSE stream)
+        # by parsing the payload and pulling out whichever shape applies.
+        session_sentinel_re = re.compile(
             r'<<session-created>>([\s\S]*?)<</session-created>>'
         )
+        project_sentinel_re = re.compile(
+            r'<<project-created>>([\s\S]*?)<</project-created>>'
+        )
+
+        def _extract_new_session_id(text: str) -> str | None:
+            import json as _json
+
+            session_match = session_sentinel_re.search(text)
+            if session_match:
+                try:
+                    payload = _json.loads(session_match.group(1))
+                except Exception:
+                    return None
+                if isinstance(payload, dict):
+                    sid = payload.get("id")
+                    if isinstance(sid, str) and sid:
+                        return sid
+                return None
+
+            project_match = project_sentinel_re.search(text)
+            if project_match:
+                try:
+                    payload = _json.loads(project_match.group(1))
+                except Exception:
+                    return None
+                if isinstance(payload, dict):
+                    session_obj = payload.get("session")
+                    if isinstance(session_obj, dict):
+                        sid = session_obj.get("id")
+                        if isinstance(sid, str) and sid:
+                            return sid
+                return None
+            return None
 
         def _maybe_add_subscription(event: object) -> None:
-            """Detect a session-created sentinel and bind the new id."""
+            """Detect a session-created / project-created sentinel and bind the new id."""
             text = getattr(event, "text", None)
             if not isinstance(text, str):
                 return
-            match = sentinel_re.search(text)
-            if not match:
-                return
-            try:
-                import json as _json
-                payload = _json.loads(match.group(1))
-            except Exception:
-                return
-            new_id = payload.get("id") if isinstance(payload, dict) else None
-            if not isinstance(new_id, str) or not new_id or new_id == request_session_id:
+            new_id = _extract_new_session_id(text)
+            if not new_id or new_id == request_session_id:
                 return
             # Bind the same queue under the new id so SuggestionEmitted
             # (emitted from tools with ctx.session_id == new_id) reaches us.
