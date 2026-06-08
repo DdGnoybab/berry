@@ -123,14 +123,26 @@ def test_stream_error_event_propagates() -> None:
         acc.build_response()
 
 
-def test_invalid_tool_call_json_raises() -> None:
+def test_invalid_tool_call_json_surfaces_as_parse_error_input() -> None:
+    """Malformed tool_use input is surfaced via _berry_parse_error,
+    not raised. Runtime turns it into a tool_result(is_error=True),
+    letting the LLM retry next round instead of killing the turn.
+    """
+    from berry.core.llm.types import ToolUseBlock
+
     acc = StreamAccumulator(model_id="main")
     acc.feed(MessageStart(id="msg_8", model="main"))
     acc.feed(ToolCallStart(id="t1", name="echo"))
     acc.feed(ToolCallDelta(id="t1", input_json_delta="not json at all"))
     acc.feed(MessageStop(stop_reason=StopReason.TOOL_USE))
-    with pytest.raises(LlmStreamError, match="not valid JSON"):
-        acc.build_response()
+
+    response = acc.build_response()
+    tool_uses = [b for b in response.content if isinstance(b, ToolUseBlock)]
+    assert len(tool_uses) == 1
+    block = tool_uses[0]
+    assert isinstance(block.input, dict)
+    assert "_berry_parse_error" in block.input
+    assert "not valid JSON" in block.input["_berry_parse_error"]
 
 
 def test_orphan_tool_call_delta_silently_dropped() -> None:

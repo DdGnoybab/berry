@@ -130,13 +130,51 @@ async def turn_stream_endpoint(req: RpcRequest, request: Request) -> StreamingRe
     if user_id is None:
         return _unauthorized()
 
-    session_id = req.params.get("session_id", "")
+    request_session_id = req.params.get("session_id", "")
 
     async def event_generator():
+        import re
+
         bus = get_event_bus()
-        # Pre-subscribe before we kick off the turn so events fired during
-        # the first stream chunk are captured.
-        sub_queue = bus.subscribe(session_id)
+        # Pre-subscribe BEFORE kicking off the turn so events fired during
+        # the first stream chunk aren't dropped.
+        #
+        # Why we may end up subscribing to MORE than one session_id:
+        # methods like ``session.resume_create`` create a fresh session
+        # *inside* the handler (the request didn't know its id yet). Tools
+        # then emit ``SuggestionEmitted`` keyed by that newly-minted
+        # ``ctx.session_id`` — which would be lost if we only listened on
+        # the request-time id (an empty string for resume_create). When
+        # the handler streams a ``<<session-created>>{...}<</session-created>>``
+        # sentinel TextDelta, we extract the new session_id and add the
+        # *same* queue as a subscriber under that id, so subsequent
+        # tool-emitted events flow into the existing SSE channel.
+        sub_queue = bus.subscribe(request_session_id)
+        extra_subscribed_ids: list[str] = []
+        sentinel_re = re.compile(
+            r'<<session-created>>([\s\S]*?)<</session-created>>'
+        )
+
+        def _maybe_add_subscription(event: object) -> None:
+            """Detect a session-created sentinel and bind the new id."""
+            text = getattr(event, "text", None)
+            if not isinstance(text, str):
+                return
+            match = sentinel_re.search(text)
+            if not match:
+                return
+            try:
+                import json as _json
+                payload = _json.loads(match.group(1))
+            except Exception:
+                return
+            new_id = payload.get("id") if isinstance(payload, dict) else None
+            if not isinstance(new_id, str) or not new_id or new_id == request_session_id:
+                return
+            # Bind the same queue under the new id so SuggestionEmitted
+            # (emitted from tools with ctx.session_id == new_id) reaches us.
+            bus.attach(new_id, sub_queue)
+            extra_subscribed_ids.append(new_id)
 
         async def _drain_turn() -> None:
             try:
@@ -154,15 +192,16 @@ async def turn_stream_endpoint(req: RpcRequest, request: Request) -> StreamingRe
                         # Runtime emits AgentEvents directly through async
                         # generator; mirror them into the bus so the SSE
                         # forwarder is the single output path.
-                        bus.emit(session_id, event)  # type: ignore[arg-type]
+                        _maybe_add_subscription(event)
+                        bus.emit(request_session_id, event)  # type: ignore[arg-type]
             except ProtocolError as exc:
                 bus.emit(
-                    session_id,
+                    request_session_id,
                     _make_error_event(exc.code, exc.message),  # type: ignore[arg-type]
                 )
             except Exception as exc:
                 bus.emit(
-                    session_id,
+                    request_session_id,
                     _make_error_event(
                         "INTERNAL_ERROR",
                         f"{type(exc).__name__}: {exc}",
@@ -183,7 +222,9 @@ async def turn_stream_endpoint(req: RpcRequest, request: Request) -> StreamingRe
                 yield f"data: {serialize_event(event)}\n\n"
         finally:
             turn_task.cancel()
-            bus.unsubscribe(session_id, sub_queue)
+            bus.unsubscribe(request_session_id, sub_queue)
+            for sid in extra_subscribed_ids:
+                bus.unsubscribe(sid, sub_queue)
 
     return StreamingResponse(
         event_generator(),

@@ -94,6 +94,18 @@ class EventBus:
         self._queues.setdefault(session_id, []).append(q)
         return q
 
+    def attach(
+        self, session_id: str, queue: asyncio.Queue[BerryEvent | None]
+    ) -> None:
+        """Attach an existing queue as a subscriber for ``session_id``.
+
+        Useful when one consumer wants to drain events for multiple
+        sessions through a single queue (e.g. an HTTP stream that
+        starts under a request-time id and learns the real id later via
+        a sentinel). Caller must ``unsubscribe`` for *each* attached id.
+        """
+        self._queues.setdefault(session_id, []).append(queue)
+
     def unsubscribe(
         self, session_id: str, queue: asyncio.Queue[BerryEvent | None]
     ) -> None:

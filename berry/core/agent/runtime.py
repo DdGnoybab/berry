@@ -356,6 +356,28 @@ class ConversationRuntime:
         """Run one tool_use through hook → policy → channel → execution; convert
         any outcome into a ToolResultBlock the LLM can consume.  Never raises.
         """
+        # 0. Short-circuit malformed-input case. stream_accumulator marks
+        # tool_use blocks whose JSON input failed to parse with a special
+        # ``_berry_parse_error`` key. Skip hook/policy/exec entirely and
+        # return the error so the LLM can retry next round.
+        parse_error = (
+            tool_use.input.get("_berry_parse_error")
+            if isinstance(tool_use.input, dict)
+            else None
+        )
+        if parse_error:
+            logger.warning(
+                "tool_use_input_parse_error",
+                tool_name=tool_use.name,
+                tool_use_id=tool_use.id,
+                detail=parse_error,
+            )
+            return ToolResultBlock(
+                tool_use_id=tool_use.id,
+                output=str(parse_error),
+                is_error=True,
+            )
+
         # 1. PreToolUse hooks (run before policy; first non-DEFER wins)
         if self._hook_runner is not None:
             hook_v = await self._hook_runner.run(

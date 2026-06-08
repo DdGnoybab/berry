@@ -148,14 +148,29 @@ class _ToolCallBuilder:
             try:
                 parsed = json.loads(raw)
             except json.JSONDecodeError as exc:
-                raise LlmStreamError(
-                    f"tool_use {self.id} ({self.name}) input is not valid JSON: "
-                    f"{raw!r}"
-                ) from exc
+                # The model produced malformed JSON (e.g. unescaped quotes
+                # in a string field). Don't kill the turn — surface the
+                # parse failure as a structured input that runtime turns
+                # into a tool_result(is_error=True). The LLM almost always
+                # retries cleanly when it sees the error in the next round.
+                input_value = {
+                    "_berry_parse_error": (
+                        f"Your tool_use input was not valid JSON. "
+                        f"Reason: {exc.msg} at line {exc.lineno} col {exc.colno}. "
+                        f"Common cause: an unescaped double-quote inside a "
+                        f"string field. Escape internal quotes as \\\" or "
+                        f"reword to avoid them, then call the tool again. "
+                        f"Raw input received: {raw!r}"
+                    )
+                }
+                return ToolUseBlock(id=self.id, name=self.name, input=input_value)
             if not isinstance(parsed, dict):
-                raise LlmStreamError(
-                    f"tool_use {self.id} ({self.name}) input must be a JSON object, "
-                    f"got {type(parsed).__name__}"
-                )
+                input_value = {
+                    "_berry_parse_error": (
+                        f"Your tool_use input must be a JSON object "
+                        f"(got {type(parsed).__name__}). Retry with an object."
+                    )
+                }
+                return ToolUseBlock(id=self.id, name=self.name, input=input_value)
             input_value = parsed
         return ToolUseBlock(id=self.id, name=self.name, input=input_value)
