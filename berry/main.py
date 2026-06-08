@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from berry import __version__
+from berry.channels.web.auth import AuthMiddleware, auth_router
 from berry.channels.web.routes import router as web_router
 from berry.core.db.session import engine
 from berry.observability.logging import configure_logging, get_logger
@@ -54,6 +55,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # 中间件顺序(Starlette 是栈结构,后 add 的先执行):
+    # 请求方向: CORS → AuthMiddleware → routes
+    # 因此先 add AuthMiddleware,再 add CORS。
+    app.add_middleware(AuthMiddleware)
+
     # CORS — 允许前端 dev server 跨域访问
     app.add_middleware(
         CORSMiddleware,
@@ -64,6 +70,7 @@ def create_app() -> FastAPI:
     )
 
     # 路由注册 — web channel 已经把 health 子路由 include 进去了
+    app.include_router(auth_router)
     app.include_router(web_router)
 
     return app

@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
+from uuid import UUID
 
 
 SYSTEM_PROMPT_DYNAMIC_BOUNDARY = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"
@@ -331,8 +332,19 @@ def discover_available_skills(cwd: Path) -> list[tuple[str, str]]:
     return results
 
 
-def build_default_system_prompt(cwd: Path | None = None) -> str:
-    """One-shot helper: build a system prompt with sensible defaults."""
+def build_default_system_prompt(
+    cwd: Path | None = None,
+    *,
+    user_id: UUID | None = None,
+) -> str:
+    """One-shot helper: build a system prompt with sensible defaults.
+
+    Args:
+        cwd: workspace dir; falls back to ``Path.cwd()``.
+        user_id: when provided, memory index is read from
+            ``{data_root}/memory/<user_id>/``. ``None`` skips the memory
+            section (used by callers that build prompt before user is known).
+    """
     builder = SystemPromptBuilder()
     builder.with_os(platform.system(), platform.release())
     builder.with_model_family(ModelFamilyIdentity.CLAUDE)
@@ -348,22 +360,25 @@ def build_default_system_prompt(cwd: Path | None = None) -> str:
     if available_skills:
         builder.with_available_skills(available_skills)
 
-    memory_entries = discover_memory_entries(effective_cwd)
-    if memory_entries:
-        builder.with_memory(memory_entries)
+    if user_id is not None:
+        memory_entries = discover_memory_entries(user_id)
+        if memory_entries:
+            builder.with_memory(memory_entries)
 
     return builder.build()
 
 
-def discover_memory_entries(cwd: Path) -> list[tuple[str, str]]:
-    """Scan memory directory and return (name, description) pairs for the index.
+def discover_memory_entries(user_id: UUID) -> list[tuple[str, str]]:
+    """Scan user's memory directory and return (name, description) pairs.
 
-    Memory files live in ``{data_root}/memory/``.
+    Memory files live in ``{data_root}/memory/<user_id>/``.
     """
     from berry.config import settings
     from berry.core.tools.memory.store import MemoryStore
 
-    memory_dir = settings.data_root / "memory"
+    memory_dir = settings.data_root / "memory" / str(user_id)
+    if not memory_dir.is_dir():
+        return []
     store = MemoryStore(memory_dir)
     entries = store.list_all()
     return [(e.name, e.description) for e in entries]

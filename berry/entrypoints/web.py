@@ -6,61 +6,22 @@ Run:
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
-from uuid import UUID
 
 from berry.channels.web.routes import configure_http_rpc
 from berry.config import settings
 from berry.core.agent.method_registry import MethodRegistry
-from berry.core.db.repos.project_repo import ProjectRepo
-from berry.core.db.repos.user_repo import UserRepo
-from berry.core.db.session import async_session_factory
-from berry.core.project.service import ProjectService
 from berry.entrypoints.cli import (
-    DEMO_PROJECT_NAME,
-    DEFAULT_USER_HANDLE,
     _build_runtime,
     _CliTurnRunner,
 )
 from berry.gateway.methods import register_core
 from berry.gateway.methods.turn import configure_runner
-from berry.observability.logging import configure_logging, get_logger
+from berry.observability.logging import get_logger
 
 logger = get_logger(__name__)
 
 _setup_done = False
-
-
-async def _seed_user() -> UUID:
-    async with async_session_factory() as db:
-        user = await UserRepo(db).get_or_create_by_handle(
-            handle=DEFAULT_USER_HANDLE,
-            display_name="Default User",
-        )
-        return user.id
-
-
-async def _ensure_demo_project(user_id: UUID) -> UUID:
-    async with async_session_factory() as db:
-        repo = ProjectRepo(db)
-        existing = await repo.get_by_user_and_name(user_id, DEMO_PROJECT_NAME)
-        if existing is not None:
-            return existing.id
-
-    async with async_session_factory() as db:
-        repo = ProjectRepo(db)
-        svc = ProjectService(settings.data_root)
-        ws_path = svc.workspace_relative_path(user_id, DEMO_PROJECT_NAME)
-        project = await repo.create(
-            user_id=user_id,
-            name=DEMO_PROJECT_NAME,
-            title="Web Demo",
-            domain="general",
-            workspace_path=ws_path,
-        )
-        svc.init_workspace(project)
-        return project.id
 
 
 def _build_session_cwd_resolver(default_workspace: Path):
@@ -94,43 +55,45 @@ async def web_setup() -> None:
     """Wire up the method registry for HTTP transport.
 
     Called from main.py lifespan, runs in the same event loop as uvicorn.
+
+    Multi-user note: web channel is multi-tenant — there is no startup-time
+    user seeding here. Each request reads ``user_id`` from the auth cookie
+    (via ``AuthMiddleware``). Admin pre-creates accounts using
+    ``berry-cli user create <username>``.
     """
     global _setup_done
     if _setup_done:
         return
 
-    user_id = await _seed_user()
-    logger.info("web_user_seeded", user_id=str(user_id))
-
-    project_id = await _ensure_demo_project(user_id)
-    logger.info("web_project_ready", project_id=str(project_id))
-
-    # The demo project doubles as the fallback workspace for sessions
-    # that don't yet exist on disk (e.g. plan-preview ephemeral sessions
-    # which never get a real session dir).
-    async with async_session_factory() as db:
-        project = await ProjectRepo(db).get_by_id(project_id)
-    if project is None:
-        raise RuntimeError(f"demo project {project_id} not found after creation")
-    default_workspace = ProjectService(settings.data_root).workspace_path(project)
+    # Fallback workspace for sessions that don't yet exist on disk (plan
+    # preview etc.). Not user-specific; lives directly under data_root.
+    default_workspace = settings.data_root / "_fallback_workspace"
     default_workspace.mkdir(parents=True, exist_ok=True)
     logger.info(
         "web_default_workspace_resolved", path=str(default_workspace)
     )
 
     # Dynamic resolver — looks up each session's actual project workspace.
-    # Critical for multi-project: a Redis session and a LangGraph session
-    # must point at different workspaces, otherwise file tools collide.
+    # Critical for multi-user / multi-project: every session must point at
+    # the right project workspace, otherwise file tools collide across
+    # tenants.
     cwd_resolver = _build_session_cwd_resolver(default_workspace)
 
-    runtime, system_prompt = _build_runtime(cwd_resolver=cwd_resolver)
+    # Web is multi-user; the system prompt is built once and shared. We
+    # intentionally skip the memory index here (user_id=None) — leaking
+    # one user's memory file names into another user's prompt would
+    # break isolation. Per-turn memory *content* is still loaded via
+    # ctx.user_id by ConversationRuntime._load_relevant_memories.
+    runtime, system_prompt = _build_runtime(
+        cwd_resolver=cwd_resolver, user_id=None
+    )
     runner = _CliTurnRunner(runtime, system_prompt, cwd_resolver=cwd_resolver)
     configure_runner(runner)
 
     registry = MethodRegistry()
     register_core(registry)
 
-    configure_http_rpc(registry, user_id)
+    configure_http_rpc(registry)
     _setup_done = True
     logger.info("web_http_rpc_configured")
 

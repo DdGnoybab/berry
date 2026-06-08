@@ -39,14 +39,16 @@ router.include_router(health_router)
 
 # Module-level registry reference, set via configure_http_rpc()
 _registry: MethodRegistry | None = None
-_default_user_id: UUID | None = None
 
 
-def configure_http_rpc(registry: MethodRegistry, default_user_id: UUID) -> None:
-    """Called at startup to wire the method registry for HTTP transport."""
-    global _registry, _default_user_id
+def configure_http_rpc(registry: MethodRegistry) -> None:
+    """Called at startup to wire the method registry for HTTP transport.
+
+    user_id is no longer set here — each request reads it from
+    ``request.state.user_id`` (populated by AuthMiddleware).
+    """
+    global _registry
     _registry = registry
-    _default_user_id = default_user_id
 
 
 # ─── Request / Response schemas ──────────────────────────────────────────
@@ -69,16 +71,20 @@ class RpcResponse(BaseModel):
 @router.post("/v1/rpc")
 async def rpc_endpoint(req: RpcRequest, request: Request) -> JSONResponse:
     """One-shot method call. Returns result or error."""
-    if _registry is None or _default_user_id is None:
+    if _registry is None:
         return JSONResponse(
             {"error": {"code": "INTERNAL_ERROR", "message": "HTTP RPC not configured"}},
             status_code=500,
         )
 
+    user_id = _user_id_from_request(request)
+    if user_id is None:
+        return _unauthorized()
+
     try:
         async with async_session_factory() as db:
             ctx = CallContext(
-                user_id=_default_user_id,
+                user_id=user_id,
                 request_id=f"http-{datetime.now().isoformat()}",
                 transport="web",
                 db=db,
@@ -114,11 +120,15 @@ async def turn_stream_endpoint(req: RpcRequest, request: Request) -> StreamingRe
     Subscription happens BEFORE turn execution so we don't drop events
     fired during the very first stream chunk.
     """
-    if _registry is None or _default_user_id is None:
+    if _registry is None:
         return JSONResponse(
             {"error": {"code": "INTERNAL_ERROR", "message": "HTTP RPC not configured"}},
             status_code=500,
         )
+
+    user_id = _user_id_from_request(request)
+    if user_id is None:
+        return _unauthorized()
 
     session_id = req.params.get("session_id", "")
 
@@ -132,7 +142,7 @@ async def turn_stream_endpoint(req: RpcRequest, request: Request) -> StreamingRe
             try:
                 async with async_session_factory() as db:
                     ctx = CallContext(
-                        user_id=_default_user_id,
+                        user_id=user_id,
                         request_id=f"http-stream-{datetime.now().isoformat()}",
                         transport="web",
                         db=db,
@@ -227,3 +237,15 @@ class _ErrorEvent(BaseModel):
 
 def _make_error_event(code: str, message: str) -> _ErrorEvent:
     return _ErrorEvent(code=code, message=message)
+
+
+def _user_id_from_request(request: Request) -> UUID | None:
+    """Pull user_id stamped onto the request by AuthMiddleware."""
+    return getattr(request.state, "user_id", None)
+
+
+def _unauthorized() -> JSONResponse:
+    return JSONResponse(
+        {"error": {"code": "UNAUTHORIZED", "message": "login required"}},
+        status_code=401,
+    )

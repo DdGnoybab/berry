@@ -5,9 +5,16 @@ const BASE = ''
 async function rpcCall<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   const res = await fetch(`${BASE}/v1/rpc`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ method, params }),
   })
+  if (res.status === 401) {
+    // Cookie expired or missing — reload so the App-level auth gate
+    // re-renders LoginPage. Simpler than wiring an event bus.
+    window.location.reload()
+    throw new Error('UNAUTHORIZED')
+  }
   const data = await res.json()
   if (data.error) {
     throw new Error(`${data.error.code}: ${data.error.message}`)
@@ -70,6 +77,7 @@ export function streamResumeCreateSession(
 
   fetch(`${BASE}/v1/turn/stream`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body,
     signal: controller.signal,
@@ -201,6 +209,7 @@ export function streamPlanPreview(
 
   fetch(`${BASE}/v1/turn/stream`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body,
     signal: controller.signal,
@@ -325,6 +334,7 @@ export function streamCreateLearningProject(
 
   fetch(`${BASE}/v1/turn/stream`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body,
     signal: controller.signal,
@@ -413,6 +423,7 @@ export function streamTurn(
 
   fetch(`${BASE}/v1/turn/stream`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body,
     signal: controller.signal,

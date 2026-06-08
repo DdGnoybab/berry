@@ -60,6 +60,8 @@ class MemoryWriteTool:
         if not body:
             return "Error: body must not be empty"
 
-        store = MemoryStore(ctx.data_root / "memory")
+        memory_dir = ctx.data_root / "memory" / str(ctx.user_id)
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        store = MemoryStore(memory_dir)
         filepath = store.write(name, mem_type, description, body)
         return f"Memory '{name}' saved to {filepath.name}."

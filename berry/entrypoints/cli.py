@@ -75,6 +75,7 @@ def _build_runtime(
     *,
     approval_channel: ApprovalChannel | None = None,
     cwd_resolver: Callable[[str], Path] | None = None,
+    user_id: UUID | None = None,
 ) -> tuple[ConversationRuntime, str]:
     """Construct ConversationRuntime + system prompt from config files.
 
@@ -138,7 +139,7 @@ def _build_runtime(
         cwd_resolver=cwd_resolver,
     )
 
-    system_prompt = build_default_system_prompt(cwd=Path.cwd())
+    system_prompt = build_default_system_prompt(cwd=Path.cwd(), user_id=user_id)
 
     return runtime, system_prompt
 
@@ -296,7 +297,7 @@ async def _run() -> None:
     project_id = await _ensure_demo_project(user_id)
     print(f"[demo] project_id  = {project_id}")
 
-    runtime, system_prompt = _build_runtime()
+    runtime, system_prompt = _build_runtime(user_id=user_id)
     runner = _CliTurnRunner(runtime, system_prompt)
     configure_runner(runner)  # type: ignore[arg-type]
 
@@ -338,7 +339,20 @@ async def _run() -> None:
 
 
 def main() -> None:
-    """Sync entry point."""
+    """Sync entry point.
+
+    Dispatch:
+      berry-cli                          → REPL (existing behavior)
+      berry-cli user <subcmd> [args]     → admin commands (see entrypoints/admin.py)
+    """
+    import sys as _sys
+
+    argv = _sys.argv[1:]
+    if argv and argv[0] == "user":
+        from berry.entrypoints.admin import run_user_command
+
+        _sys.exit(run_user_command(argv[1:]))
+
     asyncio.run(_async_main())
 
 

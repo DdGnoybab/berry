@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createSession, deleteProject, deleteSession, listProjects, listSessions, resetLearning, streamResumeCreateSession } from './api'
+import { fetchMe, logout, type MeResponse } from './auth'
 import { BerryLoading } from './components/BerryLoading'
 import { ChatInput } from './components/ChatInput'
 import { ChatMessage } from './components/ChatMessage'
 import { ConfirmModal } from './components/ConfirmModal'
+import { LoginPage } from './components/LoginPage'
 import { NewProjectModal } from './components/NewProjectModal'
 import { Sidebar } from './components/Sidebar'
 import { SuggestionButtons } from './components/SuggestionButtons'
@@ -20,6 +22,8 @@ interface ConfirmState {
 }
 
 function App() {
+  const [me, setMe] = useState<MeResponse | null>(null)
+  const [authChecked, setAuthChecked] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [sessionsByProject, setSessionsByProject] = useState<Record<string, Session[]>>({})
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
@@ -57,11 +61,36 @@ function App() {
     }
   }, [])
 
-  // Initial bootstrap
+  // Auth bootstrap — must succeed before we try to list projects.
   useEffect(() => {
+    let cancelled = false
+    async function checkAuth() {
+      try {
+        const result = await fetchMe()
+        if (!cancelled) setMe(result)
+      } catch (err) {
+        console.error('auth check error:', err)
+      } finally {
+        if (!cancelled) setAuthChecked(true)
+      }
+    }
+    checkAuth()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Initial data bootstrap — runs only once we have a logged-in user.
+  useEffect(() => {
+    if (!me) {
+      setLoading(false)
+      return
+    }
+    let cancelled = false
     async function init() {
       try {
         const ps = await listProjects()
+        if (cancelled) return
         // learning projects first, then others; within each group, newest first
         const sorted = [...ps.items].sort((a, b) => {
           if (a.domain === 'learning' && b.domain !== 'learning') return -1
@@ -73,18 +102,36 @@ function App() {
           const first = sorted[0]
           setActiveProjectId(first.id)
           const sess = await loadProjectSessions(first.id)
-          if (sess.length > 0) {
+          if (sess.length > 0 && !cancelled) {
             setActiveSessionId(sess[0].id)
           }
         }
       } catch (err) {
         console.error('Init error:', err)
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
+    setLoading(true)
     init()
-  }, [loadProjectSessions])
+    return () => {
+      cancelled = true
+    }
+  }, [me, loadProjectSessions])
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await logout()
+    } catch (err) {
+      console.error('logout error:', err)
+    }
+    // Reset all client state and switch back to login screen.
+    setMe(null)
+    setProjects([])
+    setSessionsByProject({})
+    setActiveProjectId(null)
+    setActiveSessionId(null)
+  }, [])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -352,6 +399,18 @@ function App() {
     [activeSessionId, projects, clearMessages, feedEvent, beginExternalTurn, finishExternalTurn],
   )
 
+  if (!authChecked) {
+    return (
+      <div className="loading-screen">
+        <BerryLoading text="Checking session" />
+      </div>
+    )
+  }
+
+  if (!me) {
+    return <LoginPage onSuccess={(loggedIn) => setMe(loggedIn)} />
+  }
+
   if (loading) {
     return (
       <div className="loading-screen">
@@ -400,6 +459,19 @@ function App() {
               : 'Berry'}
           </span>
           {activeProjectId && <span className="status-dot" />}
+          <div className="header-user">
+            <span className="header-user__name" title={me.display_name}>
+              {me.username}
+            </span>
+            <button
+              type="button"
+              className="header-user__logout"
+              onClick={handleLogout}
+              title="Sign out"
+            >
+              SIGN OUT
+            </button>
+          </div>
         </header>
 
         <div className="messages-container" ref={scrollRef}>

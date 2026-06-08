@@ -237,11 +237,12 @@ async def learning_reset(
         shutil.rmtree(berry_dir)
         cleared.append(".berry/")
 
-    # 3. Clear global memory
-    memory_dir = settings.data_root / "memory"
+    # 3. Clear this user's memory (per-user isolation)
+    memory_dir = settings.data_root / "memory" / str(ctx.user_id)
     if memory_dir.exists():
         for f in memory_dir.iterdir():
-            f.unlink()
+            if f.is_file():
+                f.unlink()
         cleared.append("memory")
 
     # 4. Clear global todos

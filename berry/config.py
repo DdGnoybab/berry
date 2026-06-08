@@ -54,6 +54,18 @@ class Settings(BaseSettings):
         ),
     )
 
+    cookie_secure: bool = Field(
+        default=False,
+        description=(
+            "Web channel session cookie 是否仅 HTTPS。"
+            "本地开发 / HTTP 部署 = False;生产 HTTPS = True。"
+        ),
+    )
+    session_ttl_days: int = Field(
+        default=7,
+        description="Web 登录 cookie / auth_sessions 有效期(天)。",
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

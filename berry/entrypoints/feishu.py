@@ -197,6 +197,7 @@ async def _async_main() -> None:
     runtime, system_prompt = _build_runtime(
         approval_channel=approval_channel,
         cwd_resolver=cwd_resolver,
+        user_id=user_id,
     )
 
     # Append the learning persona + bootstrap instruction to the system prompt

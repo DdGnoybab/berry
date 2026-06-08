@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, ClassVar
 
 from berry.core.tools.base import ToolContext
@@ -24,7 +23,9 @@ class MemoryReadTool:
     }
 
     async def execute(self, args: dict[str, Any], ctx: ToolContext) -> str:
-        store = MemoryStore(ctx.data_root / "memory")
+        memory_dir = ctx.data_root / "memory" / str(ctx.user_id)
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        store = MemoryStore(memory_dir)
         entries = store.list_all()
 
         if not entries:

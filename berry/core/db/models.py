@@ -1,4 +1,4 @@
-"""SQLModel 表定义:users / projects / llm_call_logs。
+"""SQLModel 表定义:users / projects / llm_call_logs / auth_sessions。
 
 设计哲学:DB 是查询索引,不是 source of truth(见 ADR-0004)。
 """
@@ -170,6 +170,47 @@ class LlmCallLog(SQLModel, table=True):
     metadata_: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column("metadata", JSONB, nullable=False, server_default="{}"),
+    )
+    created_at: datetime = Field(
+        default_factory=_now_utc,
+        sa_column=Column(
+            DateTime(timezone=True), nullable=False, server_default=func.now()
+        ),
+    )
+
+
+# ─── AuthSession ────────────────────────────────────────
+
+
+class AuthSession(SQLModel, table=True):
+    """Web 端登录态。
+
+    cookie 里只放原始 token,DB 只存 sha256(token);DB 泄漏不等于 cookie 失守。
+    一个用户可以有多行(多设备 / 多浏览器)。过期清理交给 cron(MVP 不做)。
+    """
+
+    __tablename__ = "auth_sessions"
+
+    id: UUID = Field(
+        default_factory=uuid4,
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            primary_key=True,
+            server_default=_UUID_SERVER_DEFAULT,
+        ),
+    )
+    user_id: UUID = Field(
+        sa_column=Column(
+            PGUUID(as_uuid=True),
+            ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    token_hash: str = Field(
+        sa_column=Column(String, nullable=False, unique=True),
+    )
+    expires_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False),
     )
     created_at: datetime = Field(
         default_factory=_now_utc,

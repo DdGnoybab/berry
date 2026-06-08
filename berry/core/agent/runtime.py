@@ -444,7 +444,8 @@ class ConversationRuntime:
             )
             from berry.core.tools.memory.store import MemoryStore
 
-            memory_dir = ctx.data_root / "memory"
+            memory_dir = ctx.data_root / "memory" / str(ctx.user_id)
+            memory_dir.mkdir(parents=True, exist_ok=True)
             store = MemoryStore(memory_dir)
             catalog = store.list_all()
             if not catalog:
@@ -502,7 +503,8 @@ class ConversationRuntime:
             from berry.core.tools.memory.extractor import extract_memories
             from berry.core.tools.memory.store import MemoryStore
 
-            memory_dir = ctx.data_root / "memory"
+            memory_dir = ctx.data_root / "memory" / str(ctx.user_id)
+            memory_dir.mkdir(parents=True, exist_ok=True)
             store = MemoryStore(memory_dir)
 
             # Build LLM invoker
