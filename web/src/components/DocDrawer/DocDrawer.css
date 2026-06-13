@@ -1,0 +1,215 @@
+/* DocDrawer — 右侧滑入,沿用现有视觉变量 */
+
+.doc-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+  animation: doc-drawer-fade 0.15s ease-out;
+}
+
+@keyframes doc-drawer-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.doc-drawer {
+  width: min(720px, 100%);
+  height: 100%;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  animation: doc-drawer-slide 0.2s ease-out;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4);
+}
+
+@keyframes doc-drawer-slide {
+  from { transform: translateX(40px); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+
+.doc-drawer__header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.doc-drawer__title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.doc-drawer__close {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+}
+
+.doc-drawer__close:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.doc-drawer__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 32px;
+}
+
+.doc-drawer__msg {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 60px 0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 12px;
+}
+
+.doc-drawer__msg--error {
+  color: var(--error);
+}
+
+/* ── markdown 渲染样式 ─────────────────────── */
+
+.doc-drawer__markdown {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.doc-drawer__markdown h1 {
+  font-size: 22px;
+  margin: 0 0 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--accent);
+  color: var(--text-primary);
+}
+
+.doc-drawer__markdown h2 {
+  font-size: 18px;
+  margin: 32px 0 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--accent);
+}
+
+.doc-drawer__markdown h3 {
+  font-size: 15px;
+  margin: 24px 0 10px;
+  color: var(--text-primary);
+}
+
+.doc-drawer__markdown h4 {
+  font-size: 14px;
+  margin: 20px 0 8px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.doc-drawer__markdown p {
+  margin: 8px 0 12px;
+}
+
+.doc-drawer__markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.doc-drawer__markdown strong {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.doc-drawer__markdown blockquote {
+  margin: 12px 0;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-left: 3px solid var(--accent);
+  color: var(--text-secondary);
+}
+
+.doc-drawer__markdown ul,
+.doc-drawer__markdown ol {
+  margin: 8px 0 12px;
+  padding-left: 24px;
+}
+
+.doc-drawer__markdown li {
+  margin: 4px 0;
+}
+
+.doc-drawer__markdown code {
+  font-family: 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  background: var(--bg-code);
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.doc-drawer__markdown pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  margin: 12px 0;
+  overflow-x: auto;
+  border-radius: var(--radius-sm);
+}
+
+.doc-drawer__markdown pre code {
+  background: none;
+  color: var(--text-primary);
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.doc-drawer__markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 13px;
+}
+
+.doc-drawer__markdown th,
+.doc-drawer__markdown td {
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid var(--border);
+}
+
+.doc-drawer__markdown th {
+  background: var(--bg-secondary);
+  color: var(--accent);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+
+.doc-drawer__markdown td {
+  color: var(--text-secondary);
+}
+
+.doc-drawer__markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 24px 0;
+}

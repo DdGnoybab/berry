@@ -68,9 +68,12 @@ def compute_progress(workspace_path: Path) -> ProjectProgress:
 
     modules = data.get("modules") or {}
     total_modules = len(modules)
-    # skipped 等价于 done — 用户主动判断「这块我会了 / 不学了」也是进度推进。
-    # 不区分两者,UX 简洁:进度条动了就是走了。
-    _DONE_STATUSES = {"done", "skipped"}
+    # 三种"已结束"状态:
+    #   done       — 历史叫法
+    #   completed  — LLM prompt 教的叫法,实际写文件就是这个
+    #   skipped    — 用户主动跳过,UX 上等价于完成
+    # 三个一律算结束,UX 上"进度条动了就是走了"。
+    _DONE_STATUSES = {"done", "completed", "skipped"}
     done_modules = sum(
         1 for m in modules.values() if m.get("status") in _DONE_STATUSES
     )
@@ -78,11 +81,17 @@ def compute_progress(workspace_path: Path) -> ProjectProgress:
     total_atoms = sum(
         len(m.get("atoms") or {}) for m in modules.values()
     )
+    # atom 算 done 的两种情况:
+    #   1. atom 本身 status in _DONE_STATUSES — 正常路径
+    #   2. atom 所在 module 的 status in _DONE_STATUSES — 兜底:LLM
+    #      改文件时只改了 module 外层、忘了同步 atom 的常见 bug。
+    #      module 整个被标完成时,里面的 atom 不可能还"没完成"。
     done_atoms = sum(
         1
         for m in modules.values()
         for a in (m.get("atoms") or {}).values()
         if a.get("status") in _DONE_STATUSES
+        or m.get("status") in _DONE_STATUSES
     )
 
     if total_atoms == 0:

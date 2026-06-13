@@ -155,6 +155,60 @@ def test_skipped_atom_counts_as_done(tmp_path: Path) -> None:
     assert p.phase == "learning"
 
 
+def test_completed_status_treated_as_done(tmp_path: Path) -> None:
+    """LLM 习惯写 'completed' 而不是 'done',应该等价。"""
+    _write_progress(tmp_path, {
+        "modules": {
+            "m1": {
+                "status": "completed",
+                "atoms": {"a1": {"status": "completed"}, "a2": {"status": "completed"}},
+            },
+        }
+    })
+    p = compute_progress(tmp_path)
+    assert p.done_modules == 1
+    assert p.done_atoms == 2
+    assert p.percent == 100
+
+
+def test_module_completed_implies_all_atoms_done(tmp_path: Path) -> None:
+    """LLM 改 module.status 但忘了同步 atoms — 兜底应该把 atoms 全算 done。
+
+    这是真实生产 bug:模块 03 04 status='completed',但里面 atoms
+    全是 'pending',前端进度卡在 31%(实际应该 56%)。
+    """
+    _write_progress(tmp_path, {
+        "modules": {
+            "01": {
+                "status": "skipped",
+                "atoms": {"a1": {"status": "skipped"}},
+            },
+            "03": {
+                "status": "completed",  # 模块结束
+                "atoms": {  # 但 atom 没改
+                    "a1": {"status": "pending"},
+                    "a2": {"status": "pending"},
+                    "a3": {"status": "pending"},
+                    "a4": {"status": "pending"},
+                },
+            },
+            "05": {
+                "status": "in_progress",
+                "atoms": {
+                    "a1": {"status": "pending"},
+                    "a2": {"status": "pending"},
+                },
+            },
+        }
+    })
+    p = compute_progress(tmp_path)
+    # 1 (skipped) + 4 (推断:module 完成) + 0 (in_progress) = 5 done
+    assert p.done_atoms == 5
+    assert p.total_atoms == 7
+    # done_modules 也按外层 status 算
+    assert p.done_modules == 2
+
+
 def test_mixed_done_and_skipped(tmp_path: Path) -> None:
     """done 和 skipped 都算进度,加在一起。"""
     _write_progress(tmp_path, {

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createSession, deleteProject, deleteSession, listProjects, listSessions, resetLearning, streamResumeCreateSession } from './api'
+import { createSession, deleteProject, deleteSession, fetchUserGuide, listProjects, listSessions, resetLearning, streamResumeCreateSession } from './api'
 import { fetchMe, logout, type MeResponse } from './auth'
 import { AdminLogs } from './components/AdminLogs/AdminLogs'
 import { BerryLoading } from './components/BerryLoading'
 import { ChatInput } from './components/ChatInput'
 import { ChatMessage } from './components/ChatMessage'
 import { ConfirmModal } from './components/ConfirmModal'
+import { DocDrawer } from './components/DocDrawer/DocDrawer'
 import { LoginPage } from './components/LoginPage'
 import { NewProjectModal } from './components/NewProjectModal'
 import { Sidebar } from './components/Sidebar'
@@ -35,6 +36,7 @@ function App() {
   const [showNewProjectModal, setShowNewProjectModal] = useState(false)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [view, setView] = useState<View>('chat')
+  const [showDocs, setShowDocs] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null
@@ -493,6 +495,15 @@ function App() {
             </span>
             <button
               type="button"
+              className="header-user__help"
+              onClick={() => setShowDocs(true)}
+              title="使用文档"
+              aria-label="open docs"
+            >
+              ?
+            </button>
+            <button
+              type="button"
               className="header-user__logout"
               onClick={handleLogout}
               title="Sign out"
@@ -566,6 +577,14 @@ function App() {
           variant={confirmState.variant}
           onConfirm={confirmState.onConfirm}
           onCancel={() => setConfirmState(null)}
+        />
+      )}
+
+      {showDocs && (
+        <DocDrawer
+          title="Berry · 使用指南"
+          load={fetchUserGuide}
+          onClose={() => setShowDocs(false)}
         />
       )}
     </div>

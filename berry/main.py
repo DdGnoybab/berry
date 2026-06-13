@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from berry import __version__
 from berry.channels.web.admin_logs import router as admin_logs_router
 from berry.channels.web.auth import AuthMiddleware, auth_router
+from berry.channels.web.docs import router as docs_router
 from berry.channels.web.routes import router as web_router
 from berry.core.db.session import engine
 from berry.observability.logging import configure_logging, get_logger
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(web_router)
     app.include_router(admin_logs_router)
+    app.include_router(docs_router)
 
     return app
 

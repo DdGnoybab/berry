@@ -389,3 +389,25 @@ mark.log-hl {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+.admin-logs__help {
+  margin-left: 12px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 26px;
+  height: 26px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.admin-logs__help:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

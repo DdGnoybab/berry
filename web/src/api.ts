@@ -568,3 +568,21 @@ export function streamLogs(callbacks: LogStreamCallbacks): () => void {
 
   return () => es.close()
 }
+
+// ─────────── Docs (markdown drawers) ─────────────────────────
+//
+// /v1/docs/user        — 主页用户指南,任何登录用户能看
+// /v1/admin/docs/logs  — 日志面板使用指南,仅 admin
+
+export async function fetchUserGuide(): Promise<string> {
+  const res = await fetch(`${BASE}/v1/docs/user`, { credentials: 'include' })
+  if (!res.ok) throw new Error(`docs.user HTTP ${res.status}`)
+  return res.text()
+}
+
+export async function fetchLogsGuide(): Promise<string> {
+  const res = await fetch(`${BASE}/v1/admin/docs/logs`, { credentials: 'include' })
+  if (res.status === 403) throw new Error('FORBIDDEN')
+  if (!res.ok) throw new Error(`docs.logs HTTP ${res.status}`)
+  return res.text()
+}

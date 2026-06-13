@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   downloadLogUrl,
+  fetchLogsGuide,
   queryLogs,
   streamLogs,
   type LogQueryParams,
   type LogRecord,
 } from '../../api'
+import { DocDrawer } from '../DocDrawer/DocDrawer'
 import { LogLine } from './LogLine'
 import './AdminLogs.css'
 
@@ -55,6 +57,9 @@ export function AdminLogs({ onBack }: Props) {
   const [pendingNew, setPendingNew] = useState(0)
   const consoleRef = useRef<HTMLDivElement>(null)
   const closeStreamRef = useRef<(() => void) | null>(null)
+
+  // ── docs drawer ──
+  const [showDocs, setShowDocs] = useState(false)
 
   // debounce keyword
   useEffect(() => {
@@ -217,6 +222,15 @@ export function AdminLogs({ onBack }: Props) {
         <span className={`admin-logs__live ${tailing ? '' : 'admin-logs__live--off'}`}>
           {tailing ? 'live' : 'idle'}
         </span>
+        <button
+          className="admin-logs__help"
+          onClick={() => setShowDocs(true)}
+          type="button"
+          title="使用文档"
+          aria-label="open docs"
+        >
+          ?
+        </button>
       </div>
 
       <div className="admin-logs__toolbar">
@@ -333,6 +347,14 @@ export function AdminLogs({ onBack }: Props) {
           </button>
         )}
       </div>
+
+      {showDocs && (
+        <DocDrawer
+          title="Admin · 日志使用指南"
+          load={fetchLogsGuide}
+          onClose={() => setShowDocs(false)}
+        />
+      )}
     </div>
   )
 }

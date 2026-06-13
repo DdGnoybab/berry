@@ -31,6 +31,12 @@ COPY berry ./berry
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY config ./config
+# 只拷生产运行时真用得到的两份文档(用户指南 + 日志指南),
+# /v1/docs/* endpoint 服务给前端的"使用文档"抽屉。
+# 其他 docs/*.md 是开发用的(ADR / 架构设计 / pitfalls 等),不进镜像 —
+# 既省空间,也避免泄露内部架构细节。
+COPY docs/user-guide.md ./docs/user-guide.md
+COPY docs/admin/logs-guide.md ./docs/admin/logs-guide.md
 
 # pyproject.toml 里 readme 写的是大写 README.md,Linux 大小写敏感会找不到 →
 # 装之前临时把小写软链成大写,装完即弃。这是 berry 自己历史遗留命名问题。

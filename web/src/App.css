@@ -312,6 +312,28 @@ body::before {
   border-color: var(--accent);
 }
 
+.header-user__help {
+  background: none;
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 700;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.header-user__help:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 /* ── Messages ───────────────────────────── */
 
 .messages-container {
