@@ -2,9 +2,10 @@
 
 Usage:
   berry-cli user create <username>          — create a web user, print generated password
-  berry-cli user list                       — list all web:* users
+  berry-cli user list                       — list all web:* users (shows role)
   berry-cli user reset-password <username>  — reset password, force logout, print new password
   berry-cli user delete <username>          — delete user (cascades to sessions / projects)
+  berry-cli user set-role <username> <role> — set role to 'admin' or 'user' (controls /admin/* access)
 
 These commands talk to PG directly. They are *not* part of the REPL.
 """
@@ -25,6 +26,8 @@ from berry.core.db.models import User
 from berry.core.db.session import async_session_factory, engine
 
 PASSWORD_LENGTH_BYTES = 9  # → 12 char URL-safe string
+
+VALID_ROLES = ("user", "admin")
 
 
 def _gen_password() -> str:
@@ -72,10 +75,12 @@ async def _list() -> int:
         print("(no web users)")
         return 0
 
-    print(f"{'username':<24} {'user_id':<38} created_at")
+    print(f"{'username':<24} {'role':<8} {'user_id':<38} created_at")
     for row in rows:
         username = row.handle.removeprefix(WEB_HANDLE_PREFIX)
-        print(f"{username:<24} {str(row.id):<38} {row.created_at.isoformat()}")
+        print(
+            f"{username:<24} {row.role:<8} {str(row.id):<38} {row.created_at.isoformat()}"
+        )
     return 0
 
 
@@ -118,6 +123,34 @@ async def _delete(username: str) -> int:
     return 0
 
 
+async def _set_role(username: str, role: str) -> int:
+    if role not in VALID_ROLES:
+        print(
+            f"error: invalid role '{role}', expected one of {VALID_ROLES}",
+            file=sys.stderr,
+        )
+        return 2
+
+    handle = _web_handle(username)
+    async with async_session_factory() as db:
+        user = await _get_by_handle(db, handle)
+        if user is None:
+            print(f"error: user '{username}' not found", file=sys.stderr)
+            return 1
+
+        if user.role == role:
+            print(f"user '{username}' is already {role}, no change.")
+            return 0
+
+        old_role = user.role
+        user.role = role
+        db.add(user)
+        await db.commit()
+
+    print(f"Updated {username}: {old_role} → {role}")
+    return 0
+
+
 async def _get_by_handle(db: AsyncSession, handle: str) -> User | None:
     result = await db.execute(select(User).where(User.handle == handle))  # type: ignore[arg-type]
     return result.scalar_one_or_none()
@@ -156,6 +189,11 @@ def run_user_command(args: list[str]) -> int:
                     _print_user_help()
                     return 2
                 return await _delete(rest[0])
+            if cmd == "set-role":
+                if len(rest) != 2:
+                    _print_user_help()
+                    return 2
+                return await _set_role(rest[0], rest[1])
             _print_user_help()
             return 2
         finally:
@@ -169,9 +207,10 @@ def _print_user_help() -> None:
         "usage: berry-cli user <command> [args]\n"
         "\n"
         "Commands:\n"
-        "  create <username>          Create a web user, print generated password\n"
-        "  list                       List all web:* users\n"
-        "  reset-password <username>  Reset password, force logout\n"
-        "  delete <username>          Delete user (cascades to sessions / projects)\n",
+        "  create <username>            Create a web user, print generated password\n"
+        "  list                         List all web:* users (shows role)\n"
+        "  reset-password <username>    Reset password, force logout\n"
+        "  delete <username>            Delete user (cascades to sessions / projects)\n"
+        "  set-role <username> <role>   Set role to 'admin' or 'user'\n",
         file=sys.stderr,
     )
