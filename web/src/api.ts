@@ -468,3 +468,103 @@ export function streamTurn(
 
   return controller
 }
+
+// ─────────── Admin: log viewer ───────────────────────────────
+//
+// All endpoints require role='admin'. The server returns 403 if you don't
+// have it; the App-level guard hides the UI entry point as a courtesy
+// layer, but the server check is the source of truth.
+
+export interface LogFileInfo {
+  name: string
+  date: string         // YYYY-MM-DD
+  size: number
+  compressed: boolean
+  active: boolean
+}
+
+export interface LogRecord {
+  // structlog produces these top-level fields by default; everything else
+  // varies per event. Treat anything beyond the known set as opaque.
+  timestamp?: string
+  level?: string
+  event?: string
+  raw_text?: string    // present only for unparseable lines
+  [key: string]: unknown
+}
+
+export interface LogQueryResult {
+  lines: LogRecord[]
+  next_cursor: number | null
+  total_matched: number
+  total_scanned: number
+}
+
+export interface LogQueryParams {
+  date_from: string    // ISO 8601
+  date_to: string      // ISO 8601
+  level?: string[]     // ['ERROR', 'WARN'], etc.
+  q?: string
+  limit?: number
+  cursor?: number
+}
+
+export async function listLogFiles(): Promise<LogFileInfo[]> {
+  const res = await fetch(`${BASE}/v1/admin/logs/files`, {
+    credentials: 'include',
+  })
+  if (res.status === 403) throw new Error('FORBIDDEN')
+  if (!res.ok) throw new Error(`logs.files HTTP ${res.status}`)
+  return (await res.json()) as LogFileInfo[]
+}
+
+export async function queryLogs(params: LogQueryParams): Promise<LogQueryResult> {
+  const url = new URL(`${BASE}/v1/admin/logs/query`, window.location.origin)
+  url.searchParams.set('date_from', params.date_from)
+  url.searchParams.set('date_to', params.date_to)
+  if (params.level) {
+    for (const lv of params.level) url.searchParams.append('level', lv)
+  }
+  if (params.q) url.searchParams.set('q', params.q)
+  if (params.limit !== undefined) url.searchParams.set('limit', String(params.limit))
+  if (params.cursor !== undefined) url.searchParams.set('cursor', String(params.cursor))
+
+  const res = await fetch(url.toString().replace(window.location.origin, ''), {
+    credentials: 'include',
+  })
+  if (res.status === 403) throw new Error('FORBIDDEN')
+  if (!res.ok) throw new Error(`logs.query HTTP ${res.status}`)
+  return (await res.json()) as LogQueryResult
+}
+
+export function downloadLogUrl(date: string): string {
+  // Returns a URL the user can navigate to; cookie auth travels by default.
+  return `${BASE}/v1/admin/logs/download?date=${encodeURIComponent(date)}`
+}
+
+export interface LogStreamCallbacks {
+  onLine: (rec: LogRecord) => void
+  onError?: (err: Event | Error) => void
+  onOpen?: () => void
+}
+
+export function streamLogs(callbacks: LogStreamCallbacks): () => void {
+  // EventSource handles auto-reconnect on transient drops. The cookie
+  // is sent with `withCredentials: true`. SSE goes through the same
+  // /v1/* nginx proxy that already disables buffering.
+  const url = `${BASE}/v1/admin/logs/stream`
+  const es = new EventSource(url, { withCredentials: true })
+
+  es.onopen = () => callbacks.onOpen?.()
+  es.onmessage = (ev) => {
+    try {
+      const rec = JSON.parse(ev.data) as LogRecord
+      callbacks.onLine(rec)
+    } catch (err) {
+      callbacks.onError?.(err instanceof Error ? err : new Error(String(err)))
+    }
+  }
+  es.onerror = (err) => callbacks.onError?.(err)
+
+  return () => es.close()
+}

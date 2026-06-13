@@ -1,0 +1,351 @@
+/* Admin log viewer — VS Code Output 风格,沿用现有 CSS 变量 */
+
+.admin-logs {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+}
+
+.admin-logs__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.admin-logs__title {
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.admin-logs__title .admin-logs__sep {
+  color: var(--text-muted);
+  margin: 0 8px;
+}
+
+.admin-logs__title .admin-logs__title-strong {
+  color: var(--text-primary);
+}
+
+.admin-logs__live {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.admin-logs__live::before {
+  content: '●';
+  animation: live-blink 1.5s infinite;
+}
+
+@keyframes live-blink {
+  50% { opacity: 0.3; }
+}
+
+.admin-logs__live--off {
+  color: var(--text-muted);
+}
+
+.admin-logs__live--off::before {
+  animation: none;
+  opacity: 0.5;
+}
+
+/* ── toolbar ─────────────────────────────────────── */
+
+.admin-logs__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.admin-logs__field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.admin-logs__input,
+.admin-logs__select {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  font-size: 12.5px;
+  font-family: 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+
+.admin-logs__input:focus,
+.admin-logs__select:focus {
+  border-color: var(--accent);
+}
+
+.admin-logs__input--search {
+  width: 240px;
+}
+
+.admin-logs__btn {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+}
+
+.admin-logs__btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.admin-logs__btn--active {
+  background: var(--accent);
+  color: #1a1a1a;
+  border-color: var(--accent);
+}
+
+.admin-logs__btn--active:hover {
+  background: var(--accent-hover);
+  color: #1a1a1a;
+}
+
+.admin-logs__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.admin-logs__levels {
+  display: flex;
+  gap: 4px;
+}
+
+.admin-logs__levels .admin-logs__btn {
+  padding: 5px 10px;
+}
+
+.admin-logs__spacer {
+  flex: 1;
+}
+
+.admin-logs__counts {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── console body ────────────────────────────────── */
+
+.admin-logs__console {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg-code);
+  padding: 8px 0;
+  position: relative;
+  font-family: 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.admin-logs__empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.admin-logs__loading {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* ── single line ─────────────────────────────────── */
+
+.log-line {
+  padding: 1px 16px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.log-line:hover {
+  background: var(--bg-hover);
+}
+
+.log-line--error {
+  background: rgba(255, 94, 65, 0.06);
+  border-left-color: var(--error);
+}
+
+.log-line--warn {
+  border-left-color: #dcdcaa;
+}
+
+.log-line--expanded {
+  background: var(--bg-hover);
+}
+
+.log-line__ts {
+  color: var(--text-muted);
+}
+
+.log-line__lvl {
+  display: inline-block;
+  width: 5ch;
+  margin: 0 8px;
+  font-weight: 700;
+}
+
+.log-line__lvl--info { color: #4ec9b0; }
+.log-line__lvl--warn { color: #dcdcaa; }
+.log-line__lvl--error { color: var(--error); }
+.log-line__lvl--debug { color: var(--text-muted); }
+
+.log-line__event {
+  color: #569cd6;
+  margin-right: 12px;
+}
+
+.log-line__kv {
+  color: var(--text-secondary);
+}
+
+.log-line__kv-key {
+  color: #9cdcfe;
+}
+
+.log-line__kv-eq {
+  color: var(--text-muted);
+}
+
+.log-line__kv-val {
+  color: #ce9178;
+}
+
+.log-line__detail {
+  margin-top: 4px;
+  margin-left: 24px;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border-left: 2px solid var(--accent);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
+mark.log-hl {
+  background: var(--accent);
+  color: #1a1a1a;
+  padding: 0 2px;
+  font-weight: 600;
+}
+
+/* ── floating "jump to bottom" pill ──────────────── */
+
+.admin-logs__jumpdown {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  background: var(--accent);
+  color: #1a1a1a;
+  border: none;
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.admin-logs__jumpdown:hover {
+  background: var(--accent-hover);
+}
+
+/* ── load-more footer (pagination via cursor) ──── */
+
+.admin-logs__loadmore {
+  padding: 12px;
+  text-align: center;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.admin-logs__loadmore-btn {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  padding: 6px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+}
+
+.admin-logs__loadmore-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ── back button ─────────────────────────────────── */
+
+.admin-logs__back {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.admin-logs__back:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

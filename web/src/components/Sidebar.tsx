@@ -14,6 +14,8 @@ interface Props {
   onDeleteSession: (sessionId: string, projectId: string) => void
   open: boolean
   onToggle: () => void
+  isAdmin?: boolean
+  onOpenAdminLogs?: () => void
 }
 
 export function Sidebar({
@@ -30,6 +32,8 @@ export function Sidebar({
   onDeleteSession,
   open,
   onToggle,
+  isAdmin,
+  onOpenAdminLogs,
 }: Props) {
   return (
     <>
@@ -209,16 +213,30 @@ export function Sidebar({
           </div>
         </div>
 
-        {activeProjectId && (
+        {(activeProjectId || isAdmin) && (
           <div className="sidebar-bottom">
-            <button
-              className="reset-btn"
-              onClick={() => onResetProject(activeProjectId)}
-              title="Wipe sessions + progress for current topic"
-            >
-              <span className="reset-btn__warn" aria-hidden="true">⚠</span>
-              <span className="reset-btn__label">RESET CURRENT</span>
-            </button>
+            {isAdmin && onOpenAdminLogs && (
+              <button
+                className="reset-btn"
+                onClick={onOpenAdminLogs}
+                title="Open admin log viewer"
+                style={{ marginBottom: activeProjectId ? 8 : 0 }}
+                type="button"
+              >
+                <span className="reset-btn__warn" aria-hidden="true">▤</span>
+                <span className="reset-btn__label">ADMIN · LOGS</span>
+              </button>
+            )}
+            {activeProjectId && (
+              <button
+                className="reset-btn"
+                onClick={() => onResetProject(activeProjectId)}
+                title="Wipe sessions + progress for current topic"
+              >
+                <span className="reset-btn__warn" aria-hidden="true">⚠</span>
+                <span className="reset-btn__label">RESET CURRENT</span>
+              </button>
+            )}
           </div>
         )}
       </aside>

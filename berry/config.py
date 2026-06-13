@@ -66,6 +66,33 @@ class Settings(BaseSettings):
         description="Web 登录 cookie / auth_sessions 有效期(天)。",
     )
 
+    # ─── 日志落盘(/admin/logs 面板的数据来源)───
+    # stdout 输出永远不动(Docker logs 还是能看);文件 sink 是额外加的,
+    # 控制开关 / 路径 / 保留天数。文件按天滚转,旧文件 gzip,
+    # 超过 retention 自动删除(TimedRotatingFileHandler.backupCount)。
+    log_to_file: bool = Field(
+        default=False,
+        description=(
+            "是否把日志额外写到磁盘(/admin/logs 面板需要)。"
+            "Docker 镜像里默认 true(Dockerfile 设 LOG_TO_FILE=true);"
+            "本地 dev 默认 false,避免误写到不存在的容器路径。"
+        ),
+    )
+    log_dir: Path = Field(
+        default=Path("/app/data/logs"),
+        description=(
+            "日志文件目录。容器里走 /app/data/logs(已 mount 到 berry_data 卷),"
+            "本地 dev 可以指到 ./data/logs。"
+        ),
+    )
+    log_retention_days: int = Field(
+        default=7,
+        description=(
+            "日志保留天数。每天 UTC 0 点滚转一次,旧文件 gzip,"
+            "超出此数自动删除。"
+        ),
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

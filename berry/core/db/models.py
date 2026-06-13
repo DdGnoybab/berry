@@ -47,6 +47,14 @@ class User(SQLModel, table=True):
     )
     handle: str = Field(sa_column=Column(String, nullable=False))
     display_name: str = Field(sa_column=Column(String, nullable=False))
+    role: str = Field(
+        default="user",
+        sa_column=Column(
+            String,
+            nullable=False,
+            server_default=text("'user'"),
+        ),
+    )
     metadata_: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column("metadata", JSONB, nullable=False, server_default="{}"),

@@ -55,7 +55,10 @@ COPY --from=builder --chown=berry:berry /app /app
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    LOG_FORMAT=json
+    LOG_FORMAT=json \
+    LOG_TO_FILE=true \
+    LOG_DIR=/app/data/logs \
+    LOG_RETENTION_DAYS=7
 
 # data_root 挂卷,容器内目录预创建
 RUN mkdir -p /app/data && chown -R berry:berry /app/data

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Berry 日志查看器 — 两种形态对比</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    background: #f5f5f7;
+    color: #1d1d1f;
+    padding: 20px;
+  }
+  h1 { font-size: 22px; margin-bottom: 8px; }
+  .subtitle { color: #6e6e73; margin-bottom: 24px; font-size: 14px; }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 2px solid #e5e5e7;
+    margin-bottom: 20px;
+  }
+  .tab {
+    padding: 10px 20px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    font-weight: 500;
+    color: #6e6e73;
+  }
+  .tab.active {
+    color: #1d1d1f;
+    border-bottom-color: #007aff;
+  }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ─── 形态 A:控制台风(VS Code Output) ─── */
+  .console-toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background: #2b2b2b;
+    padding: 8px 12px;
+    border-radius: 6px 6px 0 0;
+    border: 1px solid #1a1a1a;
+    border-bottom: none;
+    flex-wrap: wrap;
+  }
+  .console-toolbar input,
+  .console-toolbar select {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border: 1px solid #3c3c3c;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: ui-monospace, "SF Mono", monospace;
+  }
+  .console-toolbar input { width: 220px; }
+  .console-toolbar button {
+    background: #3c3c3c;
+    color: #d4d4d4;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .console-toolbar button.active { background: #007aff; color: white; }
+  .console-toolbar .spacer { flex: 1; }
+  .console-toolbar .meta {
+    color: #6e6e73;
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
+  }
+  .console-toolbar .live { color: #4ec9b0; }
+  .console-toolbar .live::before {
+    content: "●";
+    margin-right: 4px;
+    animation: blink 1.5s infinite;
+  }
+  @keyframes blink { 50% { opacity: 0.3; } }
+
+  .console {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 12px;
+    border-radius: 0 0 6px 6px;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    height: 480px;
+    overflow-y: auto;
+    border: 1px solid #1a1a1a;
+  }
+  .log-line { white-space: pre; padding: 1px 4px; border-radius: 2px; }
+  .log-line:hover { background: #2a2a2a; }
+  .ts { color: #858585; }
+  .lvl { padding: 0 4px; border-radius: 2px; margin: 0 6px; font-weight: 600; }
+  .lvl-INFO  { color: #4ec9b0; }
+  .lvl-WARN  { color: #dcdcaa; }
+  .lvl-ERROR { color: #f48771; background: rgba(244,135,113,0.12); }
+  .lvl-DEBUG { color: #6e6e73; }
+  .ev { color: #569cd6; }
+  .kw { color: #9cdcfe; }
+  .v  { color: #ce9178; }
+  .num { color: #b5cea8; }
+  .err-detail { color: #f48771; padding-left: 24px; font-style: italic; }
+
+  /* ─── 形态 B:表格风 ─── */
+  .table-toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background: white;
+    padding: 12px;
+    border-radius: 8px 8px 0 0;
+    border: 1px solid #e5e5e7;
+    border-bottom: none;
+    flex-wrap: wrap;
+  }
+  .table-toolbar input,
+  .table-toolbar select {
+    border: 1px solid #d2d2d7;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .table-toolbar input { width: 200px; }
+  .table-toolbar .spacer { flex: 1; }
+  .table-toolbar .meta { color: #6e6e73; font-size: 12px; }
+
+  table {
+    width: 100%;
+    background: white;
+    border-collapse: collapse;
+    border: 1px solid #e5e5e7;
+    border-radius: 0 0 8px 8px;
+    overflow: hidden;
+  }
+  thead { background: #fafafa; border-bottom: 1px solid #e5e5e7; }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 13px;
+    border-bottom: 1px solid #f0f0f2;
+  }
+  th { font-weight: 600; color: #6e6e73; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  tr:hover { background: #fafafa; cursor: pointer; }
+  td.col-ts { color: #6e6e73; font-family: ui-monospace, monospace; font-size: 12px; white-space: nowrap; }
+  td.col-event { font-family: ui-monospace, monospace; font-weight: 500; }
+  td.col-detail { color: #6e6e73; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: ui-monospace, monospace;
+  }
+  .pill-INFO  { background: #d4f4e9; color: #0a7e5e; }
+  .pill-WARN  { background: #fef3c7; color: #92400e; }
+  .pill-ERROR { background: #fde2e2; color: #b91c1c; }
+  .pill-DEBUG { background: #e5e5e7; color: #6e6e73; }
+
+  .pagination {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .pagination button {
+    background: white;
+    border: 1px solid #d2d2d7;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .pagination button.active { background: #007aff; color: white; border-color: #007aff; }
+
+  .modal-preview {
+    margin-top: 20px;
+    background: white;
+    border: 1px solid #e5e5e7;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .modal-preview .label { font-size: 11px; color: #6e6e73; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .modal-preview pre {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 12px;
+    border-radius: 6px;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-x: auto;
+  }
+
+  .note {
+    margin-top: 24px;
+    padding: 14px 16px;
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #78350f;
+  }
+</style>
+</head>
+<body>
+
+<h1>Berry 日志查看器 — 两种形态</h1>
+<div class="subtitle">同样的数据，两种展示。点 Tab 切换。</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="show('A')">A · 控制台风(VS Code Output)</div>
+  <div class="tab" onclick="show('B')">B · 表格风(后台管理)</div>
+</div>
+
+<!-- ─── 形态 A:控制台 ─── -->
+<div class="panel active" id="panel-A">
+  <div class="console-toolbar">
+    <input type="text" placeholder="🔍 搜索关键字 (event, user_id, ...)">
+    <select>
+      <option>全部 level</option><option>ERROR</option><option>WARN+</option><option>INFO+</option>
+    </select>
+    <button class="active">尾随</button>
+    <button>暂停</button>
+    <button>清屏</button>
+    <button>下载 .log</button>
+    <div class="spacer"></div>
+    <span class="meta live">实时</span>
+    <span class="meta">显示 142 / 1893 行</span>
+  </div>
+  <div class="console">
+<div class="log-line"><span class="ts">14:23:01.124</span><span class="lvl lvl-INFO">INFO </span><span class="ev">user_login</span>             <span class="kw">user_id</span>=<span class="v">"abc-123"</span> <span class="kw">channel</span>=<span class="v">"feishu"</span></div>
+<div class="log-line"><span class="ts">14:23:02.018</span><span class="lvl lvl-INFO">INFO </span><span class="ev">session_create</span>          <span class="kw">session_id</span>=<span class="v">"s_xyz"</span> <span class="kw">project</span>=<span class="v">"learning/redis"</span></div>
+<div class="log-line"><span class="ts">14:23:03.422</span><span class="lvl lvl-INFO">INFO </span><span class="ev">llm_call_start</span>          <span class="kw">model</span>=<span class="v">"opus-4-7"</span> <span class="kw">tokens_in</span>=<span class="num">1842</span></div>
+<div class="log-line"><span class="ts">14:23:08.901</span><span class="lvl lvl-INFO">INFO </span><span class="ev">llm_call_done</span>           <span class="kw">duration_ms</span>=<span class="num">5479</span> <span class="kw">tokens_out</span>=<span class="num">312</span></div>
+<div class="log-line"><span class="ts">14:23:09.111</span><span class="lvl lvl-INFO">INFO </span><span class="ev">tool_call</span>               <span class="kw">tool</span>=<span class="v">"todo_write"</span> <span class="kw">items</span>=<span class="num">13</span></div>
+<div class="log-line"><span class="ts">14:23:10.002</span><span class="lvl lvl-WARN">WARN </span><span class="ev">slow_query</span>              <span class="kw">duration_ms</span>=<span class="num">1240</span> <span class="kw">query</span>=<span class="v">"SELECT * FROM messages..."</span></div>
+<div class="log-line"><span class="ts">14:23:12.557</span><span class="lvl lvl-INFO">INFO </span><span class="ev">card_send</span>               <span class="kw">card_type</span>=<span class="v">"approval"</span> <span class="kw">user_id</span>=<span class="v">"abc-123"</span></div>
+<div class="log-line"><span class="ts">14:23:18.003</span><span class="lvl lvl-INFO">INFO </span><span class="ev">approval_clicked</span>        <span class="kw">action</span>=<span class="v">"confirm"</span> <span class="kw">tool</span>=<span class="v">"bash"</span></div>
+<div class="log-line"><span class="ts">14:23:19.220</span><span class="lvl lvl-ERROR">ERROR</span><span class="ev">tool_exec_failed</span>        <span class="kw">tool</span>=<span class="v">"bash"</span> <span class="kw">exit_code</span>=<span class="num">127</span> <span class="kw">cmd</span>=<span class="v">"redis-cli ping"</span></div>
+<div class="log-line err-detail">  └─ FileNotFoundError: [Errno 2] No such file or directory: 'redis-cli'</div>
+<div class="log-line"><span class="ts">14:23:22.118</span><span class="lvl lvl-INFO">INFO </span><span class="ev">user_login</span>             <span class="kw">user_id</span>=<span class="v">"def-456"</span> <span class="kw">channel</span>=<span class="v">"web"</span></div>
+<div class="log-line"><span class="ts">14:23:25.004</span><span class="lvl lvl-INFO">INFO </span><span class="ev">llm_call_start</span>          <span class="kw">model</span>=<span class="v">"opus-4-7"</span> <span class="kw">tokens_in</span>=<span class="num">2104</span></div>
+<div class="log-line"><span class="ts">14:23:31.998</span><span class="lvl lvl-ERROR">ERROR</span><span class="ev">llm_call_failed</span>         <span class="kw">model</span>=<span class="v">"opus-4-7"</span> <span class="kw">duration_ms</span>=<span class="num">6994</span> <span class="kw">error_type</span>=<span class="v">"APITimeoutError"</span></div>
+<div class="log-line err-detail">  └─ Traceback: anthropic._exceptions.APITimeoutError: Request timed out after 60s</div>
+<div class="log-line"><span class="ts">14:23:32.110</span><span class="lvl lvl-INFO">INFO </span><span class="ev">llm_retry</span>               <span class="kw">attempt</span>=<span class="num">2</span> <span class="kw">backoff_ms</span>=<span class="num">1000</span></div>
+<div class="log-line"><span class="ts">14:23:38.443</span><span class="lvl lvl-INFO">INFO </span><span class="ev">llm_call_done</span>           <span class="kw">duration_ms</span>=<span class="num">5318</span> <span class="kw">tokens_out</span>=<span class="num">487</span></div>
+<div class="log-line"><span class="ts">14:23:40.012</span><span class="lvl lvl-INFO">INFO </span><span class="ev">message_persisted</span>       <span class="kw">session_id</span>=<span class="v">"s_xyz"</span> <span class="kw">role</span>=<span class="v">"assistant"</span></div>
+  </div>
+  <div class="note">
+    <strong>形态 A 适合:</strong> 像看终端日志一样滚动看,关键字高亮 / level 颜色一眼可辨;支持「尾随」实时刷新、「暂停」凝固画面、「下载」导出原始 .log 切片。开发者最熟悉的形态。
+  </div>
+</div>
+
+<!-- ─── 形态 B:表格 ─── -->
+<div class="panel" id="panel-B">
+  <div class="table-toolbar">
+    <input type="text" placeholder="🔍 搜索 event / user_id">
+    <select>
+      <option>全部 level</option><option>ERROR</option><option>WARN+</option><option>INFO+</option>
+    </select>
+    <select>
+      <option>最近 1 小时</option><option>最近 24 小时</option><option>最近 7 天</option><option>自定义...</option>
+    </select>
+    <select>
+      <option>全部 user</option><option>abc-123</option><option>def-456</option>
+    </select>
+    <div class="spacer"></div>
+    <span class="meta">共 1893 条 · 第 1-20 条</span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>时间</th>
+        <th>Level</th>
+        <th>Event</th>
+        <th>详情</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="col-ts">14:23:01.124</td><td><span class="pill pill-INFO">INFO</span></td><td class="col-event">user_login</td><td class="col-detail">user_id=abc-123 channel=feishu</td></tr>
+      <tr><td class="col-ts">14:23:02.018</td><td><span class="pill pill-INFO">INFO</span></td><td class="col-event">session_create</td><td class="col-detail">session_id=s_xyz project=learning/redis</td></tr>
+      <tr><td class="col-ts">14:23:03.422</td><td><span class="pill pill-INFO">INFO</span></td><td class="col-event">llm_call_start</td><td class="col-detail">model=opus-4-7 tokens_in=1842</td></tr>
+      <tr><td class="col-ts">14:23:08.901</td><td><span class="pill pill-INFO">INFO</span></td><td class="col-event">llm_call_done</td><td class="col-detail">duration_ms=5479 tokens_out=312</td></tr>
+      <tr><td class="col-ts">14:23:10.002</td><td><span class="pill pill-WARN">WARN</span></td><td class="col-event">slow_query</td><td class="col-detail">duration_ms=1240 query=SELECT * FROM messages WHERE...</td></tr>
+      <tr style="background:#fff5f5"><td class="col-ts">14:23:19.220</td><td><span class="pill pill-ERROR">ERROR</span></td><td class="col-event">tool_exec_failed</td><td class="col-detail">tool=bash exit_code=127 cmd=redis-cli ping</td></tr>
+      <tr style="background:#fff5f5"><td class="col-ts">14:23:31.998</td><td><span class="pill pill-ERROR">ERROR</span></td><td class="col-event">llm_call_failed</td><td class="col-detail">model=opus-4-7 error_type=APITimeoutError duration_ms=6994</td></tr>
+      <tr><td class="col-ts">14:23:32.110</td><td><span class="pill pill-INFO">INFO</span></td><td class="col-event">llm_retry</td><td class="col-detail">attempt=2 backoff_ms=1000</td></tr>
+      <tr><td class="col-ts">14:23:38.443</td><td><span class="pill pill-INFO">INFO</span></td><td class="col-event">llm_call_done</td><td class="col-detail">duration_ms=5318 tokens_out=487</td></tr>
+      <tr><td class="col-ts">14:23:40.012</td><td><span class="pill pill-INFO">INFO</span></td><td class="col-event">message_persisted</td><td class="col-detail">session_id=s_xyz role=assistant</td></tr>
+    </tbody>
+  </table>
+  <div class="pagination">
+    <button>« 上一页</button>
+    <button class="active">1</button><button>2</button><button>3</button><button>...</button><button>95</button>
+    <button>下一页 »</button>
+  </div>
+  <div class="modal-preview">
+    <div class="label">点击行 → 弹出原始 JSON 详情</div>
+    <pre>{
+  "ts": "2026-06-13T14:23:31.998Z",
+  "level": "ERROR",
+  "event": "llm_call_failed",
+  "model": "opus-4-7",
+  "duration_ms": 6994,
+  "error_type": "APITimeoutError",
+  "error": "Request timed out after 60s",
+  "session_id": "s_xyz",
+  "user_id": "def-456",
+  "request_id": "req_a1b2c3"
+}</pre>
+  </div>
+  <div class="note">
+    <strong>形态 B 适合:</strong> 按字段做精准查询(指定 user_id / 时间段 / level)、点行展开看完整 payload、像后台管理一样翻页。不适合「实时尾随」,适合事后排查。
+  </div>
+</div>
+
+<script>
+function show(which) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('panel-' + which).classList.add('active');
+}
+</script>
+
+</body>
+</html>

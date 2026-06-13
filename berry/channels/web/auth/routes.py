@@ -46,6 +46,7 @@ class MeResponse(BaseModel):
     user_id: str
     username: str
     display_name: str
+    role: str
 
 
 # ─── routes ──────────────────────────────────────────────
@@ -107,7 +108,7 @@ async def me(request: Request) -> MeResponse:
 
     async with async_session_factory() as db:
         row = (
-            await db.execute(select(User).where(User.id == user_id))  # type: ignore[arg-type]
+            await db.execute(select(User).where(User.id == user_id))
         ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=401, detail="user not found")
@@ -117,4 +118,5 @@ async def me(request: Request) -> MeResponse:
         user_id=str(row.id),
         username=username,
         display_name=row.display_name,
+        role=row.role,
     )

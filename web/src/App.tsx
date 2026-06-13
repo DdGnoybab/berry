@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createSession, deleteProject, deleteSession, listProjects, listSessions, resetLearning, streamResumeCreateSession } from './api'
 import { fetchMe, logout, type MeResponse } from './auth'
+import { AdminLogs } from './components/AdminLogs/AdminLogs'
 import { BerryLoading } from './components/BerryLoading'
 import { ChatInput } from './components/ChatInput'
 import { ChatMessage } from './components/ChatMessage'
@@ -20,6 +21,8 @@ interface ConfirmState {
   onConfirm: () => void
 }
 
+type View = 'chat' | 'admin-logs'
+
 function App() {
   const [me, setMe] = useState<MeResponse | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
@@ -31,6 +34,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [showNewProjectModal, setShowNewProjectModal] = useState(false)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
+  const [view, setView] = useState<View>('chat')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null
@@ -433,6 +437,18 @@ function App() {
     (s) => s.id === activeSessionId,
   ) ?? null
 
+  const isAdmin = me.role === 'admin'
+
+  // Admin view takes over the whole window. Cheap router; no react-router needed.
+  if (view === 'admin-logs') {
+    if (!isAdmin) {
+      // Defensive — App-level guard would have blocked the entry button,
+      // but if state got into this branch (URL hack, bug), bail out.
+      setView('chat')
+    }
+    return <AdminLogs onBack={() => setView('chat')} />
+  }
+
   return (
     <div className="app">
       <Sidebar
@@ -449,6 +465,8 @@ function App() {
         onDeleteSession={handleDeleteSession}
         open={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
+        isAdmin={isAdmin}
+        onOpenAdminLogs={() => setView('admin-logs')}
       />
       <main className="main">
         <header className="main-header">

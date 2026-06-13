@@ -7,6 +7,7 @@ export interface MeResponse {
   user_id: string
   username: string
   display_name: string
+  role: string
 }
 
 export class AuthRequiredError extends Error {
