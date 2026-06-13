@@ -8,6 +8,11 @@ interface Props {
 
 const KNOWN_TOP = new Set(['timestamp', 'ts', 'level', 'event', 'logger', 'raw_text'])
 
+// 这些字段太大,不放内联 KV,折叠到展开区。
+// payload: LLM 切面里的请求/响应详情。
+// exception: structlog format_exc_info 输出的多行堆栈。
+const HEAVY_FIELDS = new Set(['payload', 'exception'])
+
 /** Render a single structlog JSON record as one console line + expandable detail. */
 export function LogLine({ rec, keyword }: Props) {
   const [expanded, setExpanded] = useState(false)
@@ -22,11 +27,16 @@ export function LogLine({ rec, keyword }: Props) {
   const isError = level.trim() === 'ERROR'
   const isWarn = level.trim() === 'WARN' || level.trim() === 'WARNING'
 
-  // Collect the "extra" fields shown inline
-  const extras: [string, unknown][] = []
+  // 把字段拆成「内联展示」和「heavy(展开才看)」两组
+  const inlineKv: [string, unknown][] = []
+  const heavyKv: [string, unknown][] = []
   for (const [k, v] of Object.entries(rec)) {
     if (KNOWN_TOP.has(k)) continue
-    extras.push([k, v])
+    if (HEAVY_FIELDS.has(k)) {
+      heavyKv.push([k, v])
+    } else {
+      inlineKv.push([k, v])
+    }
   }
 
   // For unparseable lines, just dump raw_text
@@ -54,7 +64,7 @@ export function LogLine({ rec, keyword }: Props) {
         <span className="log-line__ts">{tsShort}</span>
         <span className={lvlClass}>{level}</span>
         <span className="log-line__event">{hl(event, keyword)}</span>
-        {extras.map(([k, v], i) => (
+        {inlineKv.map(([k, v], i) => (
           <span className="log-line__kv" key={k + i}>
             <span className="log-line__kv-key">{k}</span>
             <span className="log-line__kv-eq">=</span>
@@ -62,9 +72,33 @@ export function LogLine({ rec, keyword }: Props) {
             <span> </span>
           </span>
         ))}
+        {heavyKv.map(([k]) => (
+          <span className="log-line__heavy-marker" key={`marker-${k}`}>
+            {expanded ? '▼' : '▶'} {k}
+          </span>
+        ))}
       </div>
       {expanded && (
-        <div className="log-line__detail">{JSON.stringify(rec, null, 2)}</div>
+        <div className="log-line__detail">
+          {heavyKv.length > 0 ? (
+            <>
+              {heavyKv.map(([k, v]) => (
+                <div className="log-line__heavy-section" key={k}>
+                  <div className="log-line__heavy-label">{k}</div>
+                  <pre className="log-line__heavy-body">
+                    {prettyJson(v)}
+                  </pre>
+                </div>
+              ))}
+              <div className="log-line__heavy-section">
+                <div className="log-line__heavy-label">full record</div>
+                <pre className="log-line__heavy-body">{JSON.stringify(rec, null, 2)}</pre>
+              </div>
+            </>
+          ) : (
+            <pre className="log-line__heavy-body">{JSON.stringify(rec, null, 2)}</pre>
+          )}
+        </div>
       )}
     </>
   )
@@ -92,6 +126,14 @@ function stringify(v: unknown): string {
   if (typeof v === 'number' || typeof v === 'boolean') return String(v)
   try {
     return JSON.stringify(v)
+  } catch {
+    return String(v)
+  }
+}
+
+function prettyJson(v: unknown): string {
+  try {
+    return JSON.stringify(v, null, 2)
   } catch {
     return String(v)
   }

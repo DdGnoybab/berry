@@ -86,7 +86,7 @@ class Settings(BaseSettings):
         ),
     )
     log_retention_days: int = Field(
-        default=7,
+        default=3,
         description=(
             "日志保留天数。每天 UTC 0 点滚转一次,旧文件 gzip,"
             "超出此数自动删除。"
