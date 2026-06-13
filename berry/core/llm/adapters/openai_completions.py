@@ -15,6 +15,8 @@ Batch 1 范围:
 - 不实现 tool_use / thinking(Batch 2 加)
 """
 
+import time
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -31,6 +33,10 @@ from berry.core.llm.errors import (
     LlmStreamError,
     LlmTimeoutError,
 )
+from berry.observability.logging import get_logger
+from berry.observability.wire_logging import cap_payload, dump_sdk_object
+
+_logger = get_logger(__name__)
 from berry.core.llm.types import (
     ContentBlock,
     LlmMessage,
@@ -228,11 +234,46 @@ class OpenAICompletionsAdapter:
     async def invoke(self, entry: ModelEntry, req: LlmRequest) -> LlmResponse:
         client = self._get_client(entry)
         body = self._build_body(entry, req)
+        wire_id = uuid.uuid4().hex[:12]
 
+        # ── wire 日志:即将发出去的原始 body ──
+        _logger.info(
+            "llm_wire_request",
+            wire_id=wire_id,
+            api="openai_completions",
+            mode="invoke",
+            model_logical=req.model,
+            model_provider=body.get("model"),
+            payload=cap_payload(body),
+        )
+
+        t0 = time.monotonic()
         try:
             sdk_resp = await client.chat.completions.create(**body)
         except Exception as exc:
+            _logger.error(
+                "llm_wire_failed",
+                wire_id=wire_id,
+                api="openai_completions",
+                mode="invoke",
+                model_logical=req.model,
+                duration_ms=int((time.monotonic() - t0) * 1000),
+                error_type=type(exc).__name__,
+                error=str(exc),
+                exc_info=True,
+            )
             raise self._map_error(exc) from exc
+
+        # ── wire 日志:厂商真正返回的 SDK 对象 ──
+        _logger.info(
+            "llm_wire_response",
+            wire_id=wire_id,
+            api="openai_completions",
+            mode="invoke",
+            model_logical=req.model,
+            duration_ms=int((time.monotonic() - t0) * 1000),
+            payload=cap_payload(dump_sdk_object(sdk_resp)),
+        )
 
         choice = sdk_resp.choices[0]
         msg = choice.message
@@ -281,6 +322,22 @@ class OpenAICompletionsAdapter:
         body["stream"] = True
         # OpenAI 流式默认不返 usage,需要显式打开
         body["stream_options"] = {"include_usage": True}
+        wire_id = uuid.uuid4().hex[:12]
+
+        # ── wire 日志:即将发出去的原始 body ──
+        _logger.info(
+            "llm_wire_request",
+            wire_id=wire_id,
+            api="openai_completions",
+            mode="stream",
+            model_logical=req.model,
+            model_provider=body.get("model"),
+            payload=cap_payload(body),
+        )
+
+        # 累积 SDK 原始 chunk,流结束时一次性打 llm_wire_stream_done
+        raw_chunks: list[Any] = []
+        t0 = time.monotonic()
 
         message_started = False
         stop_reason = StopReason.END_TURN
@@ -291,6 +348,7 @@ class OpenAICompletionsAdapter:
             sdk_stream = await client.chat.completions.create(**body)
 
             async for chunk in sdk_stream:
+                raw_chunks.append(dump_sdk_object(chunk))
                 # MessageStart(第一个 chunk 时发)
                 if not message_started:
                     yield MessageStart(id=chunk.id, model=req.model)
@@ -341,6 +399,18 @@ class OpenAICompletionsAdapter:
             yield MessageStop(stop_reason=stop_reason)
 
         except Exception as exc:
+            _logger.error(
+                "llm_wire_failed",
+                wire_id=wire_id,
+                api="openai_completions",
+                mode="stream",
+                model_logical=req.model,
+                duration_ms=int((time.monotonic() - t0) * 1000),
+                error_type=type(exc).__name__,
+                error=str(exc),
+                event_count=len(raw_chunks),
+                exc_info=True,
+            )
             mapped = self._map_error(exc)
             # 如果还没发过 message_start,直接抛(让上层 catch);
             # 已经发过,降级为流内 error 事件
@@ -351,3 +421,15 @@ class OpenAICompletionsAdapter:
                 error_type=type(mapped).__name__,
             )
             raise LlmStreamError(str(mapped)) from exc
+
+        # ── wire 日志:流自然结束,完整 chunk 序列 ──
+        _logger.info(
+            "llm_wire_stream_done",
+            wire_id=wire_id,
+            api="openai_completions",
+            mode="stream",
+            model_logical=req.model,
+            duration_ms=int((time.monotonic() - t0) * 1000),
+            event_count=len(raw_chunks),
+            payload=cap_payload({"chunks": raw_chunks}),
+        )

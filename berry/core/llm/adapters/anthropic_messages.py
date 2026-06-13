@@ -12,6 +12,8 @@ Batch 2 范围:
 - 错误映射
 """
 
+import time
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -20,6 +22,8 @@ from anthropic import AsyncAnthropic
 
 from berry.core.llm.config import ModelEntry
 from berry.core.llm.enums import KnownApi, StopReason
+from berry.observability.logging import get_logger
+from berry.observability.wire_logging import cap_payload, dump_sdk_object
 from berry.utils.unicode import strip_surrogates_deep as _strip_surrogates_deep
 from berry.core.llm.errors import (
     LlmAuthError,
@@ -29,6 +33,8 @@ from berry.core.llm.errors import (
     LlmStreamError,
     LlmTimeoutError,
 )
+
+_logger = get_logger(__name__)
 from berry.core.llm.types import (
     ContentBlock,
     LlmMessage,
@@ -232,11 +238,46 @@ class AnthropicMessagesAdapter:
     async def invoke(self, entry: ModelEntry, req: LlmRequest) -> LlmResponse:
         client = self._get_client(entry)
         body = self._build_body(entry, req)
+        wire_id = uuid.uuid4().hex[:12]
 
+        # ── wire 日志:即将发出去的原始 body ──
+        _logger.info(
+            "llm_wire_request",
+            wire_id=wire_id,
+            api="anthropic_messages",
+            mode="invoke",
+            model_logical=req.model,
+            model_provider=body.get("model"),
+            payload=cap_payload(body),
+        )
+
+        t0 = time.monotonic()
         try:
             sdk_resp = await client.messages.create(**body)
         except Exception as exc:
+            _logger.error(
+                "llm_wire_failed",
+                wire_id=wire_id,
+                api="anthropic_messages",
+                mode="invoke",
+                model_logical=req.model,
+                duration_ms=int((time.monotonic() - t0) * 1000),
+                error_type=type(exc).__name__,
+                error=str(exc),
+                exc_info=True,
+            )
             raise self._map_error(exc) from exc
+
+        # ── wire 日志:厂商真正返回的 SDK 对象 ──
+        _logger.info(
+            "llm_wire_response",
+            wire_id=wire_id,
+            api="anthropic_messages",
+            mode="invoke",
+            model_logical=req.model,
+            duration_ms=int((time.monotonic() - t0) * 1000),
+            payload=cap_payload(dump_sdk_object(sdk_resp)),
+        )
 
         return LlmResponse(
             id=sdk_resp.id,
@@ -257,6 +298,23 @@ class AnthropicMessagesAdapter:
     ) -> AsyncIterator[StreamEvent]:
         client = self._get_client(entry)
         body = self._build_body(entry, req)
+        wire_id = uuid.uuid4().hex[:12]
+
+        # ── wire 日志:即将发出去的原始 body ──
+        _logger.info(
+            "llm_wire_request",
+            wire_id=wire_id,
+            api="anthropic_messages",
+            mode="stream",
+            model_logical=req.model,
+            model_provider=body.get("model"),
+            payload=cap_payload(body),
+        )
+
+        # 累积 SDK 原始事件,流结束时一次性打 llm_wire_stream_done。
+        # 不在每个事件上打日志(一次对话上千个 chunk 会爆)。
+        raw_events: list[dict[str, Any]] = []
+        t0 = time.monotonic()
 
         message_started = False
         # 跟踪当前 content_block 的类型,delta 才知道是 text / thinking / tool_use
@@ -269,6 +327,8 @@ class AnthropicMessagesAdapter:
             async with client.messages.stream(**body) as stream:
                 # Anthropic SDK stream 提供 raw events
                 async for event in stream:
+                    # 累积原始事件 — admin 排查时能看到完整事件序列
+                    raw_events.append(dump_sdk_object(event))
                     etype = event.type
 
                     if etype == "message_start":
@@ -323,11 +383,35 @@ class AnthropicMessagesAdapter:
                         pass  # 已经在 message_delta 处理
 
         except Exception as exc:
+            _logger.error(
+                "llm_wire_failed",
+                wire_id=wire_id,
+                api="anthropic_messages",
+                mode="stream",
+                model_logical=req.model,
+                duration_ms=int((time.monotonic() - t0) * 1000),
+                error_type=type(exc).__name__,
+                error=str(exc),
+                event_count=len(raw_events),
+                exc_info=True,
+            )
             mapped = self._map_error(exc)
             if not message_started:
                 raise mapped from exc
             yield StreamError(message=str(mapped), error_type=type(mapped).__name__)
             raise LlmStreamError(str(mapped)) from exc
+
+        # ── wire 日志:流自然结束,完整事件序列 ──
+        _logger.info(
+            "llm_wire_stream_done",
+            wire_id=wire_id,
+            api="anthropic_messages",
+            mode="stream",
+            model_logical=req.model,
+            duration_ms=int((time.monotonic() - t0) * 1000),
+            event_count=len(raw_events),
+            payload=cap_payload({"events": raw_events}),
+        )
 
 
 # ─── helpers ───────────────────────────────────────────────────────────────
