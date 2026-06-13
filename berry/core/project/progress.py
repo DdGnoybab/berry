@@ -68,8 +68,11 @@ def compute_progress(workspace_path: Path) -> ProjectProgress:
 
     modules = data.get("modules") or {}
     total_modules = len(modules)
+    # skipped 等价于 done — 用户主动判断「这块我会了 / 不学了」也是进度推进。
+    # 不区分两者,UX 简洁:进度条动了就是走了。
+    _DONE_STATUSES = {"done", "skipped"}
     done_modules = sum(
-        1 for m in modules.values() if m.get("status") == "done"
+        1 for m in modules.values() if m.get("status") in _DONE_STATUSES
     )
 
     total_atoms = sum(
@@ -79,7 +82,7 @@ def compute_progress(workspace_path: Path) -> ProjectProgress:
         1
         for m in modules.values()
         for a in (m.get("atoms") or {}).values()
-        if a.get("status") == "done"
+        if a.get("status") in _DONE_STATUSES
     )
 
     if total_atoms == 0:
