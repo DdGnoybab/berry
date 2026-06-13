@@ -76,7 +76,15 @@ reference/
 # ─── 仅本地保留的内容(不推 GitHub) ───
 # 这些文件 / 目录纯本地,推 GitHub 没价值或暂不公开
 # 设计文档 / 踩坑 / ADR / 名词字典
-docs/
+# 注:用 docs/* 而不是 docs/,这样下面 ! 例外才能放行具体文件
+# (gitignore 规则:被排除的目录里的文件无法用 ! 反白,但用 /* 通配就可以)
+docs/*
+# 例外:生产运行时通过 /v1/docs/* 服务给前端的两份用户文档,必须进 git
+# 这样 Dockerfile COPY 时才有源,不然 docker build 阶段会找不到文件。
+!docs/user-guide.md
+!docs/admin/
+docs/admin/*
+!docs/admin/logs-guide.md
 # AI 协作约定(本地工程师用)
 CLAUDE.md
 /INTRO.md
