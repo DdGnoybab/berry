@@ -15,6 +15,23 @@ from __future__ import annotations
 
 from prometheus_client import Counter, Histogram
 
+# ─── HTTP ──────────────────────────────────────────────────
+# 自己实现(不用 prometheus-fastapi-instrumentator —— 它跟 FastAPI v0.116+ 的
+# `_IncludedRouter` 不兼容)。中间件:berry/observability/metrics_middleware.py。
+
+HTTP_REQUESTS = Counter(
+    "http_requests_total",
+    "HTTP 请求总数",
+    ["method", "handler", "status"],
+)
+HTTP_DURATION = Histogram(
+    "http_request_duration_seconds",
+    "HTTP 请求耗时(秒)",
+    ["method", "handler"],
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+)
+
+
 # ─── LLM ───────────────────────────────────────────────────
 
 # 调用次数。基数估算:5 model × 2 api × 2 mode × 2 status = 40 series,安全。
@@ -59,6 +76,8 @@ TOOL_DURATION = Histogram(
 
 
 __all__ = [
+    "HTTP_DURATION",
+    "HTTP_REQUESTS",
     "LLM_CALLS",
     "LLM_DURATION",
     "LLM_TOKENS",

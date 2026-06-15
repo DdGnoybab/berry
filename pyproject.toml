@@ -48,9 +48,10 @@ dependencies = [
     "bcrypt>=4.2",              # 密码 hash
     # ─── 监控(/metrics + Prometheus + Grafana,见 spec 2026-06-15)───
     "prometheus-client>=0.21",                     # Counter / Histogram 客户端
-    # 钉 v7.x:v8.0 在我们的嵌套 include_router 结构上踩 `_IncludedRouter`
-    # 没有 .path 属性的 bug(routing.py:55 AttributeError)。v7 在该场景 stable。
-    "prometheus-fastapi-instrumentator>=7,<8",     # FastAPI HTTP metric 一行接入
+    # 注:不用 prometheus-fastapi-instrumentator —— 它(v6/v7/v8 全部)
+    # 假设所有 starlette route 都有 .path,但 FastAPI v0.116+ 引入了
+    # `_IncludedRouter` 内部对象不符合该假设,启动后第一个请求就 500。
+    # HTTP metric 我们走 berry/observability/metrics_middleware.py 手写。
 ]
 
 [project.optional-dependencies]

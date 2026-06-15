@@ -11,7 +11,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_fastapi_instrumentator import Instrumentator
 
 from berry import __version__
 from berry.channels.web.admin_logs import router as admin_logs_router
@@ -25,6 +24,10 @@ from berry.observability.logging import configure_logging, get_logger
 # 也会暴露这些 metric 名(否则 prometheus scrape 第一轮会缺指标,
 # Grafana 第一次渲染面板时也会显示 "No data")。
 from berry.observability import metrics as _metrics  # noqa: F401
+from berry.observability.metrics_middleware import (
+    MetricsMiddleware,
+    metrics_endpoint,
+)
 
 logger = get_logger(__name__)
 
@@ -64,9 +67,11 @@ def create_app() -> FastAPI:
     )
 
     # 中间件顺序(Starlette 是栈结构,后 add 的先执行):
-    # 请求方向: CORS → AuthMiddleware → routes
-    # 因此先 add AuthMiddleware,再 add CORS。
+    # 请求方向: CORS → MetricsMiddleware → AuthMiddleware → routes
+    # 因此先 add AuthMiddleware,再 add MetricsMiddleware,最后 CORS。
+    # MetricsMiddleware 包在 Auth 外面 — 401 / 403 也要进 metric。
     app.add_middleware(AuthMiddleware)
+    app.add_middleware(MetricsMiddleware)
 
     # CORS — 允许前端 dev server 跨域访问
     app.add_middleware(
@@ -84,14 +89,15 @@ def create_app() -> FastAPI:
     app.include_router(docs_router)
 
     # ── 监控 ──
-    # /metrics 暴露给 prometheus 容器抓(compose 内网),公网 nginx 不转发,
-    # 所以无需鉴权。should_group_status_codes=False:5xx 跟 4xx 分开看。
-    # excluded_handlers=['/metrics'] 防止自抓自记。
-    # include_in_schema=False:OpenAPI doc 不显示这个端点。
-    Instrumentator(
-        excluded_handlers=["/metrics"],
-        should_group_status_codes=False,
-    ).instrument(app).expose(app, include_in_schema=False, tags=["monitoring"])
+    # /metrics 端点(prometheus 容器从 compose 内网抓,AuthMiddleware
+    # 已把它放进 PUBLIC_PATHS;公网 nginx 不转发,靠网络隔离做边界)。
+    app.add_api_route(
+        "/metrics",
+        metrics_endpoint,
+        methods=["GET"],
+        include_in_schema=False,
+        tags=["monitoring"],
+    )
 
     return app
 
