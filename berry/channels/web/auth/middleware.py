@@ -26,6 +26,10 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
         "/auth/login",
         "/health",
         "/v1/methods",
+        # Prometheus 容器从 compose 内网抓 /metrics,没有 cookie。
+        # 端点本身不暴露公网(nginx 不转发 /metrics),靠网络隔离做边界。
+        # 见 spec docs/superpowers/specs/2026-06-15-monitoring-design.md §六。
+        "/metrics",
     }
 )
 

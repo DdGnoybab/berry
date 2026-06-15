@@ -48,7 +48,9 @@ dependencies = [
     "bcrypt>=4.2",              # 密码 hash
     # ─── 监控(/metrics + Prometheus + Grafana,见 spec 2026-06-15)───
     "prometheus-client>=0.21",                     # Counter / Histogram 客户端
-    "prometheus-fastapi-instrumentator>=7.0",      # FastAPI HTTP metric 一行接入
+    # 钉 v7.x:v8.0 在我们的嵌套 include_router 结构上踩 `_IncludedRouter`
+    # 没有 .path 属性的 bug(routing.py:55 AttributeError)。v7 在该场景 stable。
+    "prometheus-fastapi-instrumentator>=7,<8",     # FastAPI HTTP metric 一行接入
 ]
 
 [project.optional-dependencies]
