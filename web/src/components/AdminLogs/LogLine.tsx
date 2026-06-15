@@ -18,7 +18,7 @@ export function LogLine({ rec, keyword }: Props) {
   const [expanded, setExpanded] = useState(false)
 
   const ts = (rec.timestamp ?? rec.ts ?? '') as string
-  const tsShort = ts.slice(11, 23) || ts // HH:MM:SS.mmm slice from ISO
+  const tsShort = formatBeijingTime(ts) || ts
 
   const level = String(rec.level ?? 'info').toUpperCase().padEnd(5)
   const lvlClass = `log-line__lvl log-line__lvl--${level.trim().toLowerCase()}`
@@ -137,4 +137,31 @@ function prettyJson(v: unknown): string {
   } catch {
     return String(v)
   }
+}
+
+/**
+ * 把 UTC ISO 时间戳转成北京时间 HH:MM:SS.mmm。
+ *
+ * 后端 structlog 落盘永远是 UTC(便于跨时区运维 / 原始 .log 文件用 jq
+ * 处理仍是标准格式),前端展示时统一转 Asia/Shanghai。
+ *
+ * 输入:"2026-06-14T04:08:18.824574Z"
+ * 输出:"12:08:18.824"
+ */
+function formatBeijingTime(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  // toLocaleTimeString 不带毫秒,用 Intl.DateTimeFormat 拼一下
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(d)
+  const map: Record<string, string> = {}
+  for (const p of parts) map[p.type] = p.value
+  const ms = String(d.getUTCMilliseconds()).padStart(3, '0')
+  return `${map.hour}:${map.minute}:${map.second}.${ms}`
 }

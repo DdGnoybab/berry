@@ -37,8 +37,18 @@
   color: var(--text-primary);
 }
 
-.admin-logs__live {
+.admin-logs__tz {
   margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', ui-monospace, monospace;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  cursor: help;
+}
+
+.admin-logs__live {
   display: flex;
   align-items: center;
   gap: 6px;

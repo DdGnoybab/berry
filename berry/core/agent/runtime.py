@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import copy
 import os
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
@@ -433,23 +434,34 @@ class ConversationRuntime:
         ctx: ToolContext,
     ) -> ToolResultBlock:
         """Lookup and execute a tool; wrap result or error into a ToolResultBlock."""
-        try:
-            tool = self._tools.get(tool_use.name)
-        except KeyError:
+        # Lazy import to avoid pulling prometheus into modules that don't need it.
+        from berry.observability.metrics import TOOL_CALLS, TOOL_DURATION
+
+        tool_name = tool_use.name  # 'bash' / 'read_file' / ... LLM 视角的 tool 名
+
+        tool = self._tools.get(tool_name)
+        if tool is None:
+            TOOL_CALLS.labels(tool=tool_name, status="error").inc()
             return ToolResultBlock(
                 tool_use_id=tool_use.id,
-                output=f"tool not registered: {tool_use.name}",
+                output=f"tool not registered: {tool_name}",
                 is_error=True,
             )
 
+        t0 = time.monotonic()
         try:
             output = await tool.execute(tool_use.input, ctx)
         except Exception as exc:
+            TOOL_CALLS.labels(tool=tool_name, status="error").inc()
+            TOOL_DURATION.labels(tool=tool_name).observe(time.monotonic() - t0)
             return ToolResultBlock(
                 tool_use_id=tool_use.id,
                 output=strip_surrogates(f"tool error ({type(exc).__name__}): {exc}"),
                 is_error=True,
             )
+
+        TOOL_CALLS.labels(tool=tool_name, status="ok").inc()
+        TOOL_DURATION.labels(tool=tool_name).observe(time.monotonic() - t0)
 
         # Tool outputs become ToolResultBlocks that are pushed back into
         # session.messages for the next LLM turn. Strip lone surrogates here

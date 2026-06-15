@@ -46,6 +46,9 @@ dependencies = [
     "python-dotenv>=1.0",       # entrypoint .env 加载
     # ─── Auth(web channel)───
     "bcrypt>=4.2",              # 密码 hash
+    # ─── 监控(/metrics + Prometheus + Grafana,见 spec 2026-06-15)───
+    "prometheus-client>=0.21",                     # Counter / Histogram 客户端
+    "prometheus-fastapi-instrumentator>=7.0",      # FastAPI HTTP metric 一行接入
 ]
 
 [project.optional-dependencies]

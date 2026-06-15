@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from berry import __version__
 from berry.channels.web.admin_logs import router as admin_logs_router
@@ -19,6 +20,11 @@ from berry.channels.web.docs import router as docs_router
 from berry.channels.web.routes import router as web_router
 from berry.core.db.session import engine
 from berry.observability.logging import configure_logging, get_logger
+# 副作用 import:让 LLM_CALLS / TOOL_CALLS 等 metric 在进程启动时注册到
+# prometheus 全局 registry — 即使应用还没产生过任何调用,/metrics 端点
+# 也会暴露这些 metric 名(否则 prometheus scrape 第一轮会缺指标,
+# Grafana 第一次渲染面板时也会显示 "No data")。
+from berry.observability import metrics as _metrics  # noqa: F401
 
 logger = get_logger(__name__)
 
@@ -76,6 +82,16 @@ def create_app() -> FastAPI:
     app.include_router(web_router)
     app.include_router(admin_logs_router)
     app.include_router(docs_router)
+
+    # ── 监控 ──
+    # /metrics 暴露给 prometheus 容器抓(compose 内网),公网 nginx 不转发,
+    # 所以无需鉴权。should_group_status_codes=False:5xx 跟 4xx 分开看。
+    # excluded_handlers=['/metrics'] 防止自抓自记。
+    # include_in_schema=False:OpenAPI doc 不显示这个端点。
+    Instrumentator(
+        excluded_handlers=["/metrics"],
+        should_group_status_codes=False,
+    ).instrument(app).expose(app, include_in_schema=False, tags=["monitoring"])
 
     return app
 

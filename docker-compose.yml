@@ -79,7 +79,75 @@ services:
     expose:
       - "6379"
 
+  # ─── 监控栈 ───────────────────────────────────────────
+  # spec: docs/superpowers/specs/2026-06-15-monitoring-design.md
+  # 暴露到公网的只有 grafana(经 nginx /grafana/ 反代),
+  # prometheus / node-exporter / cadvisor 都只 compose 内部可见。
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: berry-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=7d'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - berry_prom_data:/prometheus
+    expose:
+      - "9090"
+
+  grafana:
+    image: grafana/grafana:11.5.0
+    container_name: berry-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:?GF_ADMIN_PASSWORD must be set}
+      # 子路径部署:Grafana 会被 nginx 反代到 /grafana/
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - berry_grafana_data:/var/lib/grafana
+      - ./deploy/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    expose:
+      - "3000"
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: berry-node-exporter
+    restart: unless-stopped
+    command:
+      - '--path.rootfs=/host'
+    volumes:
+      - /:/host:ro,rslave
+    expose:
+      - "9100"
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: berry-cadvisor
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    expose:
+      - "8080"
+
 volumes:
   berry_pgdata:
   berry_data:
   berry_redisdata:
+  berry_prom_data:        # prometheus 时序数据(7 天 retention)
+  berry_grafana_data:     # grafana 自身数据(用户/dashboard 持久化)

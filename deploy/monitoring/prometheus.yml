@@ -1,0 +1,31 @@
+# Prometheus scrape 配置。
+#
+# 抓三个 target:
+#   - berry-app(/metrics) 业务指标 + 自动 HTTP 指标
+#   - node-exporter         主机资源
+#   - cadvisor              容器资源
+#
+# scrape_interval=15s:对一个个人/小团队项目够用;Grafana panel
+# 的 rate() 都是 5m 起,15s 抓一次相当于每个 panel 看 20 个数据点。
+#
+# 不配 alerting / remote_write — 一期不上告警,不外发。
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    deployment: berry
+
+scrape_configs:
+  - job_name: berry
+    static_configs:
+      - targets: ['berry:8000']
+    metrics_path: /metrics
+
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']

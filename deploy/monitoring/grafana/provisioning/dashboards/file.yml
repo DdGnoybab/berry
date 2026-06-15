@@ -1,0 +1,15 @@
+# Grafana 启动时从 /var/lib/grafana/dashboards 加载所有 .json,
+# 自动放到 "Berry" 文件夹下。改了 dashboard 文件 → 重启容器即生效。
+
+apiVersion: 1
+
+providers:
+  - name: berry
+    folder: Berry
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

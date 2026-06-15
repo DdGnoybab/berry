@@ -20,25 +20,37 @@ type Level = (typeof LEVELS)[number]
 
 const LIMIT = 200
 
-function todayLocal(): string {
-  // <input type="date"> wants YYYY-MM-DD in local timezone
-  const d = new Date()
-  const yy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${yy}-${mm}-${dd}`
+// 日志面板统一按北京时间(Asia/Shanghai)显示与筛选,
+// 跟用户「我刚才几点发的请求」心智模型对齐。
+// 后端 / 落盘文件保留 UTC,这里只在展示和发请求边界做转换。
+
+const TZ = 'Asia/Shanghai'
+const TZ_OFFSET_MIN = 8 * 60  // 北京固定 UTC+8,无夏令时
+
+function todayInBeijing(): string {
+  // 拿"现在的北京日期"作为 YYYY-MM-DD(默认筛选今天)
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  const m: Record<string, string> = {}
+  for (const p of parts) m[p.type] = p.value
+  return `${m.year}-${m.month}-${m.day}`
 }
 
-function isoFromLocalParts(date: string, time: string): string {
-  // build a *local* datetime, then serialize as UTC ISO
-  // input: "2026-06-13", "14:30"
-  const d = new Date(`${date}T${time}:00`)
-  return d.toISOString()
+function isoFromBeijing(date: string, time: string): string {
+  // 用户输入 "2026-06-15" + "14:30" 含义是「北京时间 14:30」。
+  // 转 UTC ISO 发后端: 北京 14:30 = UTC 06:30。
+  // 实现:把 "2026-06-15T14:30:00" 视为北京 wall time → 减 8h → toISOString()
+  const utcMs = Date.parse(`${date}T${time}:00Z`) - TZ_OFFSET_MIN * 60 * 1000
+  return new Date(utcMs).toISOString()
 }
 
 export function AdminLogs({ onBack }: Props) {
   // ── filter state ──
-  const [date, setDate] = useState<string>(todayLocal())
+  const [date, setDate] = useState<string>(todayInBeijing())
   const [timeFrom, setTimeFrom] = useState<string>('00:00')
   const [timeTo, setTimeTo] = useState<string>('23:59')
   const [activeLevels, setActiveLevels] = useState<Set<Level>>(new Set())
@@ -70,7 +82,7 @@ export function AdminLogs({ onBack }: Props) {
   // is "today + full day + no level filter + no keyword" — i.e. live mode is meaningful
   const isLiveScope = useMemo(() => {
     return (
-      date === todayLocal() &&
+      date === todayInBeijing() &&
       timeFrom === '00:00' &&
       timeTo === '23:59' &&
       activeLevels.size === 0 &&
@@ -80,8 +92,8 @@ export function AdminLogs({ onBack }: Props) {
 
   const queryParams: LogQueryParams = useMemo(() => {
     const params: LogQueryParams = {
-      date_from: isoFromLocalParts(date, timeFrom),
-      date_to: isoFromLocalParts(date, timeTo === '23:59' ? '23:59' : timeTo),
+      date_from: isoFromBeijing(date, timeFrom),
+      date_to: isoFromBeijing(date, timeTo === '23:59' ? '23:59' : timeTo),
       limit: LIMIT,
       cursor: 0,
     }
@@ -218,6 +230,9 @@ export function AdminLogs({ onBack }: Props) {
           Berry <span className="admin-logs__sep">/</span>
           Admin <span className="admin-logs__sep">/</span>
           <span className="admin-logs__title-strong">Logs</span>
+        </span>
+        <span className="admin-logs__tz" title="所有时间按北京时间显示;后端落盘是 UTC">
+          CST
         </span>
         <span className={`admin-logs__live ${tailing ? '' : 'admin-logs__live--off'}`}>
           {tailing ? 'live' : 'idle'}

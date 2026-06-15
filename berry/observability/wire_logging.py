@@ -46,7 +46,7 @@ def dump_sdk_object(obj: Any) -> Any:
     # pydantic v1
     if hasattr(obj, "dict") and callable(obj.dict):
         try:
-            return obj.dict()  # type: ignore[no-any-return]
+            return obj.dict()
         except Exception:
             pass
     # primitives / collections

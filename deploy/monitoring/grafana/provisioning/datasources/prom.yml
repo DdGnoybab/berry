@@ -1,0 +1,13 @@
+# Grafana 启动时自动配置 Prometheus 数据源,不用手点。
+# uid 锁住,这样 dashboard JSON 里的 datasource 引用不会因为 UI 改名而失效。
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    url: http://prometheus:9090
+    access: proxy
+    isDefault: true
+    editable: false
