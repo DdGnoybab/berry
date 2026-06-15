@@ -33,7 +33,12 @@ logs
 .DS_Store
 
 # 文档 / 测试不进生产镜像
+# 但 user-guide.md / admin/logs-guide.md 例外:运行时 /v1/docs/* 服务给前端
+# 抽屉用,Dockerfile COPY 它们,所以必须放进 build context。
 docs
+!docs/user-guide.md
+!docs/admin
+!docs/admin/logs-guide.md
 notes
 quizzes
 test
