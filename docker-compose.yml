@@ -132,7 +132,11 @@ services:
       - "9100"
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    # 国内拉不到 gcr.io,换 docker hub 上的双胞胎社区镜像 zcube/cadvisor。
+    # 提供的 metric 跟官方完全兼容(container_cpu_usage_seconds_total /
+    # container_memory_usage_bytes 都在),Dashboard 不用改。
+    # 版本停在 v0.45 是因为 zcube 维护的最新固定 tag 就这个。
+    image: zcube/cadvisor:v0.45.0
     container_name: berry-cadvisor
     restart: unless-stopped
     privileged: true
