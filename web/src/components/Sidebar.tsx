@@ -16,6 +16,11 @@ interface Props {
   onToggle: () => void
   isAdmin?: boolean
   onOpenAdminLogs?: () => void
+  /** project.list bootstrap error message — displayed in the empty
+   *  state instead of "NO TOPICS YET" so a 5xx / network failure doesn't
+   *  look identical to "user genuinely has no topics". */
+  initError?: string | null
+  onRetryInit?: () => void
 }
 
 export function Sidebar({
@@ -34,6 +39,8 @@ export function Sidebar({
   onToggle,
   isAdmin,
   onOpenAdminLogs,
+  initError,
+  onRetryInit,
 }: Props) {
   return (
     <>
@@ -83,10 +90,26 @@ export function Sidebar({
 
         <div className="sidebar-projects">
           {projects.length === 0 ? (
-            <div className="sidebar-empty">
-              <span className="sidebar-empty__line">NO TOPICS YET</span>
-              <span className="sidebar-empty__hint">PRESS [ + NEW TOPIC ] TO BEGIN</span>
-            </div>
+            initError ? (
+              <div className="sidebar-empty sidebar-empty--error">
+                <span className="sidebar-empty__line">CONNECTION ERROR</span>
+                <span className="sidebar-empty__hint">{initError}</span>
+                {onRetryInit && (
+                  <button
+                    className="sidebar-empty__retry"
+                    onClick={onRetryInit}
+                    type="button"
+                  >
+                    [ RETRY ]
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="sidebar-empty">
+                <span className="sidebar-empty__line">NO TOPICS YET</span>
+                <span className="sidebar-empty__hint">PRESS [ + NEW TOPIC ] TO BEGIN</span>
+              </div>
+            )
           ) : (
             projects.map((p, idx) => {
               const isActive = p.id === activeProjectId

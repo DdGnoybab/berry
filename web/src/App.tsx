@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createSession, deleteProject, deleteSession, fetchUserGuide, listProjects, listSessions, resetLearning, streamResumeCreateSession } from './api'
 import { fetchMe, logout, type MeResponse } from './auth'
 import { AdminLogs } from './components/AdminLogs/AdminLogs'
+import { About } from './components/About/About'
 import { BerryLoading } from './components/BerryLoading'
 import { ChatInput } from './components/ChatInput'
 import { ChatMessage } from './components/ChatMessage'
@@ -22,7 +23,7 @@ interface ConfirmState {
   onConfirm: () => void
 }
 
-type View = 'chat' | 'admin-logs'
+type View = 'chat' | 'admin-logs' | 'about'
 
 function App() {
   const [me, setMe] = useState<MeResponse | null>(null)
@@ -37,6 +38,10 @@ function App() {
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [view, setView] = useState<View>('chat')
   const [showDocs, setShowDocs] = useState(false)
+  // Surface init failures (project.list / session.list) instead of silently
+  // landing the user on "NO TOPICS YET" — that empty state is identical
+  // whether the user really has no topics or the API call blew up.
+  const [initError, setInitError] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null
@@ -96,44 +101,45 @@ function App() {
     }
   }, [])
 
-  // Initial data bootstrap — runs only once we have a logged-in user.
+  // Initial data bootstrap — list projects + open the first one's most
+  // recent session. Extracted from the useEffect below so the sidebar
+  // CONNECTION-ERROR retry button can re-fire it without forcing a
+  // full reload. Retry intentionally clears initError up-front so the
+  // user sees the spinner instead of the stale banner during the retry.
+  const runInit = useCallback(async () => {
+    setLoading(true)
+    setInitError(null)
+    try {
+      const ps = await listProjects()
+      const sorted = [...ps.items].sort((a, b) => {
+        if (a.domain === 'learning' && b.domain !== 'learning') return -1
+        if (a.domain !== 'learning' && b.domain === 'learning') return 1
+        return b.created_at.localeCompare(a.created_at)
+      })
+      setProjects(sorted)
+      if (sorted.length > 0) {
+        const first = sorted[0]
+        setActiveProjectId(first.id)
+        const sess = await loadProjectSessions(first.id)
+        if (sess.length > 0) {
+          setActiveSessionId(sess[0].id)
+        }
+      }
+    } catch (err) {
+      setInitError(err instanceof Error ? err.message : String(err))
+      console.error('Init error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [loadProjectSessions])
+
   useEffect(() => {
     if (!me) {
       setLoading(false)
       return
     }
-    let cancelled = false
-    async function init() {
-      try {
-        const ps = await listProjects()
-        if (cancelled) return
-        // learning projects first, then others; within each group, newest first
-        const sorted = [...ps.items].sort((a, b) => {
-          if (a.domain === 'learning' && b.domain !== 'learning') return -1
-          if (a.domain !== 'learning' && b.domain === 'learning') return 1
-          return b.created_at.localeCompare(a.created_at)
-        })
-        setProjects(sorted)
-        if (sorted.length > 0) {
-          const first = sorted[0]
-          setActiveProjectId(first.id)
-          const sess = await loadProjectSessions(first.id)
-          if (sess.length > 0 && !cancelled) {
-            setActiveSessionId(sess[0].id)
-          }
-        }
-      } catch (err) {
-        console.error('Init error:', err)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    setLoading(true)
-    init()
-    return () => {
-      cancelled = true
-    }
-  }, [me, loadProjectSessions])
+    runInit()
+  }, [me, runInit])
 
   const handleLogout = useCallback(async () => {
     try {
@@ -440,6 +446,10 @@ function App() {
   ) ?? null
 
   const isAdmin = me.role === 'admin'
+  // Compute the "is About view active" flag here, before the early-returns
+  // below narrow `view` to `'chat'`. The header needs the full View type
+  // visible to render the active-state class on the ABOUT button.
+  const isAboutActive = view === 'about'
 
   // Admin view takes over the whole window. Cheap router; no react-router needed.
   if (view === 'admin-logs') {
@@ -449,6 +459,11 @@ function App() {
       setView('chat')
     }
     return <AdminLogs onBack={() => setView('chat')} />
+  }
+
+  // About view — also takes over the whole window, mirrors admin-logs pattern.
+  if (view === 'about') {
+    return <About onBack={() => setView('chat')} />
   }
 
   return (
@@ -469,6 +484,8 @@ function App() {
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         isAdmin={isAdmin}
         onOpenAdminLogs={() => setView('admin-logs')}
+        initError={initError}
+        onRetryInit={runInit}
       />
       <main className="main">
         <header className="main-header">
@@ -501,6 +518,15 @@ function App() {
               aria-label="open docs"
             >
               ?
+            </button>
+            <button
+              type="button"
+              className={`header-user__nav-btn ${isAboutActive ? 'is-active' : ''}`}
+              onClick={() => setView((v) => (v === 'about' ? 'chat' : 'about'))}
+              title="个人主页 / About"
+              aria-label="open about page"
+            >
+              ABOUT
             </button>
             <button
               type="button"
