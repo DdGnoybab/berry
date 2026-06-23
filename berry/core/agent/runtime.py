@@ -224,6 +224,14 @@ class ConversationRuntime:
             # Anthropic 400s on this. Strip the orphans here so the wire
             # request is always self-consistent.
             request_messages = _strip_unpaired_tool_blocks(compacted_for_llm)
+            # Merge consecutive same-role messages. Anthropic requires strict
+            # user/assistant alternation; sources of double-user runs:
+            #   - ask_user_question short-circuit ends a turn on a tool_result
+            #     (role=user); the next turn pushes a fresh user_text right
+            #     after, producing user→user.
+            #   - Reminders / nags injected as role=user before the actual
+            #     user_text in the same turn.
+            request_messages = _merge_consecutive_same_role(request_messages)
 
             request = LlmRequest(
                 model=current_model,
@@ -351,6 +359,16 @@ class ConversationRuntime:
                 rounds_since_todo = 0
             else:
                 rounds_since_todo += 1
+
+            # ask_user_question short-circuit:
+            # 这个工具的语义是「把按钮交给用户,等用户挑」。继续走下一轮 LLM
+            # 只会让模型生成一些「请点击下面的按钮」之类的废话(浪费首 token
+            # 等待时间),并把按钮一直 hold 在 disabled 状态 —— 前端要看到
+            # turn_end 才会 enable。直接结束本轮 turn,把控制权交回用户,
+            # tool_result 已经 push 进 session(避免下次 turn pairing 错配)。
+            if any(tu.name == "ask_user_question" for tu in tool_uses):
+                yield agent_events.TurnEnd(stop_reason="ask_user_question")
+                return
 
             # Loop: re-call the LLM with the new tool_result context.
 
@@ -597,6 +615,31 @@ def _stream_event_to_agent_event(
     if isinstance(ev, TextDelta):
         return agent_events.TextDelta(text=ev.text)
     return None
+
+
+def _merge_consecutive_same_role(
+    messages: list[LlmMessage],
+) -> list[LlmMessage]:
+    """Coalesce adjacent messages that share a role.
+
+    Anthropic's API requires roles to alternate. Inside our session we may
+    have consecutive role=user messages (a tool_result followed by the next
+    turn's user_text, or a nag reminder injected before user_text). We just
+    concatenate their content blocks — order is preserved, no block is
+    dropped.
+    """
+    if not messages:
+        return messages
+    out: list[LlmMessage] = [messages[0]]
+    for msg in messages[1:]:
+        if msg.role == out[-1].role:
+            out[-1] = LlmMessage(
+                role=msg.role,
+                content=[*out[-1].content, *msg.content],
+            )
+        else:
+            out.append(msg)
+    return out
 
 
 def _strip_unpaired_tool_blocks(messages: list[LlmMessage]) -> list[LlmMessage]:
