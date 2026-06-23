@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from berry.observability.logging import get_logger
 
@@ -45,6 +46,31 @@ class ProjectProgress:
     topic: str | None = None
 
 
+def _normalize_modules(raw: Any) -> list[dict[str, Any]]:
+    """Coerce ``progress.json["modules"]`` to a list of dict modules.
+
+    Tolerates both the current ``{mod_id: mod_obj}`` shape and the legacy
+    ``[mod_obj, ...]`` shape that some old / LLM-written files still use.
+    Anything else (None, non-dict entries, ...) is dropped silently —
+    callers prefer ``phase=uninitialized`` over a partial / wrong percent.
+    """
+    if isinstance(raw, dict):
+        return [v for v in raw.values() if isinstance(v, dict)]
+    if isinstance(raw, list):
+        return [v for v in raw if isinstance(v, dict)]
+    return []
+
+
+def _atoms_of(module: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return a module's atoms as a list, regardless of dict/list shape."""
+    raw = module.get("atoms")
+    if isinstance(raw, dict):
+        return [v for v in raw.values() if isinstance(v, dict)]
+    if isinstance(raw, list):
+        return [v for v in raw if isinstance(v, dict)]
+    return []
+
+
 def compute_progress(workspace_path: Path) -> ProjectProgress:
     """Read ``<workspace>/.berry/progress.json`` and derive progress stats.
 
@@ -56,6 +82,20 @@ def compute_progress(workspace_path: Path) -> ProjectProgress:
         return ProjectProgress(phase="uninitialized", percent=0)
 
     try:
+        return _compute_progress_inner(pj)
+    except Exception as exc:  # 兜底:坏 schema 不能拖垮 list_projects
+        logger.warning(
+            "progress_json_compute_failed",
+            error_type=type(exc).__name__,
+            error=str(exc),
+            path=str(pj),
+            exc_info=True,
+        )
+        return ProjectProgress(phase="uninitialized", percent=0)
+
+
+def _compute_progress_inner(pj: Path) -> ProjectProgress:
+    try:
         data = json.loads(pj.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning(
@@ -66,7 +106,11 @@ def compute_progress(workspace_path: Path) -> ProjectProgress:
         )
         return ProjectProgress(phase="uninitialized", percent=0)
 
-    modules = data.get("modules") or {}
+    # modules 历史上有两种形态:
+    #   - dict[mod_id, mod_obj] —— 当前 schema
+    #   - list[mod_obj]         —— 早期形态,LLM 仍偶发会写出来
+    # 这里统一规整成 list[mod_obj] 处理,不挑形态。
+    modules = _normalize_modules(data.get("modules"))
     total_modules = len(modules)
     # 三种"已结束"状态:
     #   done       — 历史叫法
@@ -75,11 +119,11 @@ def compute_progress(workspace_path: Path) -> ProjectProgress:
     # 三个一律算结束,UX 上"进度条动了就是走了"。
     _DONE_STATUSES = {"done", "completed", "skipped"}
     done_modules = sum(
-        1 for m in modules.values() if m.get("status") in _DONE_STATUSES
+        1 for m in modules if m.get("status") in _DONE_STATUSES
     )
 
     total_atoms = sum(
-        len(m.get("atoms") or {}) for m in modules.values()
+        len(_atoms_of(m)) for m in modules
     )
     # atom 算 done 的两种情况:
     #   1. atom 本身 status in _DONE_STATUSES — 正常路径
@@ -88,8 +132,8 @@ def compute_progress(workspace_path: Path) -> ProjectProgress:
     #      module 整个被标完成时,里面的 atom 不可能还"没完成"。
     done_atoms = sum(
         1
-        for m in modules.values()
-        for a in (m.get("atoms") or {}).values()
+        for m in modules
+        for a in _atoms_of(m)
         if a.get("status") in _DONE_STATUSES
         or m.get("status") in _DONE_STATUSES
     )

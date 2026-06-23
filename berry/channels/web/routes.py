@@ -30,7 +30,10 @@ from berry.channels.web.health import router as health_router
 from berry.core.agent.event_bus import get_event_bus
 from berry.core.agent.method_registry import CallContext, MethodRegistry
 from berry.core.db.session import async_session_factory
+from berry.observability.logging import get_logger
 from berry.protocol.errors import ProtocolError
+
+logger = get_logger(__name__)
 
 router = APIRouter(tags=["web"])
 
@@ -98,6 +101,14 @@ async def rpc_endpoint(req: RpcRequest, request: Request) -> JSONResponse:
             status_code=200,
         )
     except Exception as exc:
+        # 把 traceback 打到容器日志里 —— 否则前端只看到 INTERNAL_ERROR,
+        # 服务端只看到一行 500,要复现得碰运气。
+        logger.exception(
+            "rpc_internal_error",
+            method=req.method,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
         return JSONResponse(
             {"error": {"code": "INTERNAL_ERROR", "message": f"{type(exc).__name__}: {exc}"}},
             status_code=500,

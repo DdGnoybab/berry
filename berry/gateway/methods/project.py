@@ -19,6 +19,7 @@ from berry.core.project.service import (
     validate_project_name,
 )
 from berry.gateway.methods.registry import CallContext, MethodRegistry
+from berry.observability.logging import get_logger
 from berry.protocol.errors import ErrorCode, ProtocolError
 from berry.protocol.methods_core import (
     CORE_METHODS,
@@ -32,23 +33,40 @@ from berry.protocol.methods_core import (
 )
 from berry.protocol.types import Page, ProjectProgressSummary, ProjectSummary
 
+logger = get_logger(__name__)
+
 
 def _row_to_summary(row: Project) -> ProjectSummary:
     progress: ProjectProgressSummary | None = None
     if row.domain == "learning":
-        svc = ProjectService(settings.data_root)
-        ws = svc.workspace_path(row)
-        p = compute_progress(ws)
-        progress = ProjectProgressSummary(
-            phase=p.phase,
-            percent=p.percent,
-            done_atoms=p.done_atoms,
-            total_atoms=p.total_atoms,
-            done_modules=p.done_modules,
-            total_modules=p.total_modules,
-            current_atom=p.current_atom,
-            topic=p.topic,
-        )
+        # 单个 project 的 progress 计算坏掉不能拖垮 list_projects ——
+        # sidebar 一个 project 没进度,远好于整个列表 500、所有 project 都看不见。
+        # compute_progress 自身已经"never raises";这里再套一层是为了
+        # workspace_path 解析、ProjectService 实例化等周边调用失败的兜底。
+        try:
+            svc = ProjectService(settings.data_root)
+            ws = svc.workspace_path(row)
+            p = compute_progress(ws)
+            progress = ProjectProgressSummary(
+                phase=p.phase,
+                percent=p.percent,
+                done_atoms=p.done_atoms,
+                total_atoms=p.total_atoms,
+                done_modules=p.done_modules,
+                total_modules=p.total_modules,
+                current_atom=p.current_atom,
+                topic=p.topic,
+            )
+        except Exception as exc:
+            logger.warning(
+                "project_progress_compute_failed",
+                error_type=type(exc).__name__,
+                error=str(exc),
+                project_id=str(row.id),
+                workspace_path=row.workspace_path,
+                exc_info=True,
+            )
+            progress = None
     return ProjectSummary(
         id=row.id,
         user_id=row.user_id,

@@ -61,7 +61,7 @@ logs/
 
 # ─── Local data / sandbox ───
 .local/
-data/
+/data/
 workspaces/
 
 # ─── 本项目专用 ───
