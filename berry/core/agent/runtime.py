@@ -47,7 +47,11 @@ from berry.core.agent.hook import (
     HookRunner,
     HookVerdictAction,
 )
-from berry.core.agent.reminders import numbered_list_nag, phantom_buttons_nag
+from berry.core.agent.reminders import (
+    numbered_list_nag,
+    phantom_buttons_nag,
+    trailing_question_nag,
+)
 from berry.core.agent.session import AgentSession
 from berry.core.agent.stream_accumulator import StreamAccumulator
 from berry.core.agent.tool_registry import ToolRegistry
@@ -160,6 +164,11 @@ class ConversationRuntime:
         # Same idea but for phantom buttons (LLM tells the user to "click the
         # buttons above" while no ask_user_question was called this turn).
         pending_phantom_buttons_nag: phantom_buttons_nag.PhantomButtonsNag | None = None
+        # Trailing-question nag: LLM ended with a choice prompt
+        # ("下一个 atom?", "继续吗?") but never called ask_user_question.
+        pending_trailing_question_nag: (
+            trailing_question_nag.TrailingQuestionNag | None
+        ) = None
 
         # ─── Memory: load relevant memories into context ───
         await self._load_relevant_memories(session, ctx)
@@ -204,6 +213,19 @@ class ConversationRuntime:
                     )],
                 ))
                 pending_phantom_buttons_nag = None
+
+            # Trailing-question nag: previous turn ended on a choice prompt
+            # without ask_user_question. Inject a corrective reminder.
+            if pending_trailing_question_nag is not None:
+                session.push_message(LlmMessage(
+                    role="user",
+                    content=[TextBlock(
+                        text=trailing_question_nag.render_reminder(
+                            pending_trailing_question_nag
+                        )
+                    )],
+                ))
+                pending_trailing_question_nag = None
 
             # ─── 四层压缩管线（每轮 LLM 调用前,在所有 nag 注入之后） ───
             # 关键:深拷贝再传入。pipeline 内部 L2/L3 会 mutate block.output,
@@ -314,6 +336,12 @@ class ConversationRuntime:
             )
             if phantom_nag.triggered:
                 pending_phantom_buttons_nag = phantom_nag
+
+            trailing_nag = trailing_question_nag.detect(
+                assistant_text, tools_called=tool_names_called
+            )
+            if trailing_nag.triggered:
+                pending_trailing_question_nag = trailing_nag
             if not tool_uses:
                 # Plain assistant reply — turn done.
                 # ─── Memory: extract + consolidate (fire-and-forget) ───
