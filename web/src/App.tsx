@@ -159,6 +159,31 @@ function App() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
 
+  // After every turn, the LLM may have edited progress.json (advanced
+  // an atom, updated the plan, marked a module done). Re-fetch the
+  // project list when streaming ends so sidebar progress reflects the
+  // new state. We watch the true→false edge specifically — flipping
+  // true to start a turn shouldn't trigger a refresh.
+  const prevStreamingRef = useRef(isStreaming)
+  useEffect(() => {
+    const wasStreaming = prevStreamingRef.current
+    prevStreamingRef.current = isStreaming
+    if (!wasStreaming || isStreaming) return
+    // Only when we actually have an authenticated session.
+    if (!me) return
+    listProjects()
+      .then((ps) => {
+        // Preserve display order: the runInit / handleProjectCreated
+        // sorts already cooked into `projects`; here we just patch
+        // each project's progress field by id.
+        setProjects((prev) => {
+          const byId = new Map(ps.items.map((p) => [p.id, p]))
+          return prev.map((p) => byId.get(p.id) ?? p)
+        })
+      })
+      .catch((err) => console.error('post-turn listProjects failed:', err))
+  }, [isStreaming, me])
+
   const handleSelectProject = useCallback(
     async (projectId: string) => {
       if (projectId === activeProjectId) return
