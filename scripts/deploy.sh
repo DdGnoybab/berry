@@ -7,6 +7,9 @@
 #   ./scripts/deploy.sh --force-build      # 强制重 build(忽略变更检测)
 #   ./scripts/deploy.sh --dry-run          # 演练,只打印不执行
 #   ./scripts/deploy.sh --rollback         # 立即回滚到上一个已知健康的版本
+#   ./scripts/deploy.sh --skip-tests       # 热修逃生门:跳过 step 0 回归测试
+#                                          # (只用于生产已挂、要立刻补丁的场景;
+#                                          #  CI 仍会拦)
 #
 # 工作流(对应你 4 个选择):
 #   1. 检查本地分支同步状态,确保 origin/main 有最新代码
@@ -46,11 +49,13 @@ bold()   { printf "\033[1m%s\033[0m\n" "$*"; }
 FORCE_BUILD=0
 DRY_RUN=0
 ROLLBACK=0
+SKIP_TESTS=0
 for arg in "$@"; do
     case "$arg" in
         --force-build) FORCE_BUILD=1 ;;
         --dry-run)     DRY_RUN=1 ;;
         --rollback)    ROLLBACK=1 ;;
+        --skip-tests)  SKIP_TESTS=1 ;;
         -h|--help)
             sed -n '3,20p' "$0"
             exit 0
@@ -116,6 +121,41 @@ rollback_to() {
 
 bold "▶ Berry 部署"
 [ "$DRY_RUN" = "1" ] && yellow "  ⚠ DRY-RUN 模式 — 只打印不执行"
+
+# ─── Step 0: 回归测试(本地温柔提醒;CI 是主拦截) ───
+# 三层都跑:unit / integration / web build
+# 任一失败 → abort,除非 --skip-tests
+# 详见 CLAUDE.md「部署前回归测试」章节
+if [ "$SKIP_TESTS" = "1" ]; then
+    yellow "  ⚠ --skip-tests 已启用,跳过本地回归测试"
+    yellow "    (CI 仍会跑;CLAUDE.md 要求当天补绿)"
+elif [ "$DRY_RUN" = "1" ]; then
+    yellow "  [dry-run] 跳过本地回归测试(dry-run 模式)"
+else
+    blue "[0/7] 本地回归测试..."
+
+    blue "      pytest tests/unit -q"
+    if ! uv run pytest tests/unit -q; then
+        red "✗ unit tests 失败 — 修绿后再 push,或加 --skip-tests 强行部署"
+        exit 1
+    fi
+    green "  ✓ unit 通过"
+
+    blue "      pytest tests/integration -q"
+    if ! uv run pytest tests/integration -q; then
+        red "✗ integration tests 失败 — 修绿后再 push,或加 --skip-tests 强行部署"
+        red "  (要 PG 跑在 localhost:5432,user bbb,password berry)"
+        exit 1
+    fi
+    green "  ✓ integration 通过"
+
+    blue "      web build (tsc + vite)"
+    if ! (cd web && npm run build); then
+        red "✗ web build 失败 — 修绿后再 push,或加 --skip-tests 强行部署"
+        exit 1
+    fi
+    green "  ✓ web build 通过"
+fi
 
 # Step 1: 检查本地状态
 blue "[1/7] 检查本地仓库状态..."

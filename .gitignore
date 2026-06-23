@@ -85,8 +85,8 @@ docs/*
 !docs/admin/
 docs/admin/*
 !docs/admin/logs-guide.md
-# AI 协作约定(本地工程师用)
-CLAUDE.md
+# AI 协作约定 — 入 git,协作规则对所有人可见
+# (若有不便公开的私人段,放 .claude/private.md 或 ~/.claude/CLAUDE.md)
 /INTRO.md
 /quizzes/m1.1-q1.md
 /notes/m1.1-sds.md
